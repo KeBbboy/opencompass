@@ -133,3 +133,9 @@ turbomind/
 
 # aliyun
 core.*
+
+# KIVI CUDA extension compiled files
+opencompass/models/sparity_model/patches/full_kivi/quant/build/
+opencompass/models/sparity_model/patches/full_kivi/quant/dist/
+opencompass/models/sparity_model/patches/full_kivi/quant/*.egg-info/
+opencompass/models/sparity_model/patches/full_kivi/quant/kivi_gemv.cpython-*.so

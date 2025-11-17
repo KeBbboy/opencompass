@@ -113,7 +113,7 @@ models = [
             k_bits=2,              # Key quantization bits (1-8)
             v_bits=2,              # Value quantization bits (1-8)
             group_size=32,         # Quantization group size
-            residual_length=128,   # Number of recent tokens kept in full precision
+            residual_length=32,   # Number of recent tokens kept in full precision
         )
     )
 ]

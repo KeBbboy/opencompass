@@ -10,11 +10,7 @@ CONFIG_FILE="opencompass/configs/sparity_config/run_Longbench.py"
 
 # 定义要测试的方法
 METHODS=(
-    "pyramidkv_gqa"
-    "pyramidkv"
-    "full"
-    "snapkv"
-    "snapkv_gqa"
+    "full_KIVI"
 )
 
 # 定义要测试的 max_capacity_prompt 值
