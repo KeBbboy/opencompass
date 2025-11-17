@@ -18,6 +18,7 @@ from transformers.utils import logging
 logger = logging.get_logger(__name__)
 
 from ..utils.kv_utils import estimate_kv_memory
+from ..quantization.int8_quant import quantize_kv_int8_per_token, dequantize_kv_int8
 
 
 def llama_sdpa_attn_forward_FULL_INT8_KV(
@@ -117,16 +118,16 @@ def llama_sdpa_attn_forward_FULL_INT8_KV(
             # Prefill阶段：量化并存储整个KV cache
             self.kv_seq_len = kv_seq_len
 
-            # INT8量化 key_states 和 value_states
+            # INT8量化 key_states 和 value_states（非对称量化）
             print(f"\n[INT8 Quantization - Layer {self.layer_idx}] Prefill阶段 - 量化KV cache")
             print(f"  Key states shape: {key_states.shape}, dtype: {key_states.dtype}")
 
-            key_states_int8, key_scale = quantize_kv_int8_per_token(key_states)
-            value_states_int8, value_scale = quantize_kv_int8_per_token(value_states)
+            key_states_int8, key_quant_params = quantize_kv_int8_per_token(key_states)
+            value_states_int8, value_quant_params = quantize_kv_int8_per_token(value_states)
 
-            # 存储量化的 scale
-            self.key_scale_cache[self.layer_idx] = key_scale
-            self.value_scale_cache[self.layer_idx] = value_scale
+            # 存储量化参数 (scale, zero_point)
+            self.key_scale_cache[self.layer_idx] = key_quant_params
+            self.value_scale_cache[self.layer_idx] = value_quant_params
 
             # 将量化后的 int8 tensor 存储到 cache
             past_key_value.update(key_states_int8, value_states_int8,
@@ -151,29 +152,40 @@ def llama_sdpa_attn_forward_FULL_INT8_KV(
             # Decode阶段：量化新token，拼接到已有cache，然后反量化
             self.kv_seq_len += q_len
 
-            # INT8量化新的 key_states 和 value_states
+            # INT8量化新的 key_states 和 value_states（非对称量化）
             print(f"\n[INT8 Quantization - Layer {self.layer_idx}] Decode阶段 - 量化新token")
             print(f"  New key states shape: {key_states.shape}, dtype: {key_states.dtype}")
 
-            key_states_int8, key_scale_new = quantize_kv_int8_per_token(key_states)
-            value_states_int8, value_scale_new = quantize_kv_int8_per_token(value_states)
+            key_states_int8, key_quant_params_new = quantize_kv_int8_per_token(key_states)
+            value_states_int8, value_quant_params_new = quantize_kv_int8_per_token(value_states)
 
             # 将量化后的新token存储到cache，返回完整的量化cache
             key_states_int8_full, value_states_int8_full = past_key_value.update(
                 key_states_int8, value_states_int8, self.layer_idx, cache_kwargs)
 
-            # 更新scale：拼接新token的scale到已有scale
+            # 更新量化参数：拼接新token的(scale, zero_point)到已有参数
             if self.layer_idx in self.key_scale_cache:
-                self.key_scale_cache[self.layer_idx] = torch.cat([
-                    self.key_scale_cache[self.layer_idx], key_scale_new
-                ], dim=2)  # 在seq_len维度拼接
-                self.value_scale_cache[self.layer_idx] = torch.cat([
-                    self.value_scale_cache[self.layer_idx], value_scale_new
-                ], dim=2)
+                # 解包已有的量化参数
+                key_scale_old, key_zp_old = self.key_scale_cache[self.layer_idx]
+                value_scale_old, value_zp_old = self.value_scale_cache[self.layer_idx]
+
+                # 解包新的量化参数
+                key_scale_new, key_zp_new = key_quant_params_new
+                value_scale_new, value_zp_new = value_quant_params_new
+
+                # 拼接 scale 和 zero_point
+                key_scale_full = torch.cat([key_scale_old, key_scale_new], dim=2)  # 在seq_len维度拼接
+                key_zp_full = torch.cat([key_zp_old, key_zp_new], dim=2)
+                value_scale_full = torch.cat([value_scale_old, value_scale_new], dim=2)
+                value_zp_full = torch.cat([value_zp_old, value_zp_new], dim=2)
+
+                # 重新打包并存储
+                self.key_scale_cache[self.layer_idx] = (key_scale_full, key_zp_full)
+                self.value_scale_cache[self.layer_idx] = (value_scale_full, value_zp_full)
             else:
                 # 如果是第一次decode（之前没有prefill），直接存储
-                self.key_scale_cache[self.layer_idx] = key_scale_new
-                self.value_scale_cache[self.layer_idx] = value_scale_new
+                self.key_scale_cache[self.layer_idx] = key_quant_params_new
+                self.value_scale_cache[self.layer_idx] = value_quant_params_new
 
             # 反量化完整的cache以供计算使用
             key_states = dequantize_kv_int8(

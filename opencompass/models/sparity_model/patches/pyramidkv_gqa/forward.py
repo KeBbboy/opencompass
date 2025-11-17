@@ -110,14 +110,22 @@ def llama_sdpa_attn_forward_PyramidKV_gqa(
         # Check if this is a new sample (prefill stage): cache is empty for this layer
         is_prefill = len(past_key_value.key_cache) <= self.layer_idx
 
-        if is_prefill:
-            self.kv_seq_len = kv_seq_len
+    if past_key_value is not None:
+        # sin and cos are specific to RoPE models; cache_position needed for the static cache
+        cache_kwargs = {
+            'sin': sin,
+            'cos': cos,
+            'cache_position': cache_position
+        }
+        if key_states.shape[-2] != 1:
+            # Removed debug prints for performance (layer 23 diagnostics)
             key_states_compress, value_states_compress = self.kv_cluster.update_kv(
                 key_states, query_states, value_states, attention_mask,
                 self.num_key_value_groups)
+
+            
             past_key_value.update(key_states_compress, value_states_compress,
                                   self.layer_idx, cache_kwargs)
-
             if self.layer_idx == 27:
                 # 获取 method 和 max_capacity_prompt 参数
                 method = getattr(self.config, 'method', 'unknown')
@@ -133,11 +141,10 @@ def llama_sdpa_attn_forward_PyramidKV_gqa(
 
                 estimate_kv_memory(past_key_value, method=method, max_capacity_prompt=max_capacity_prompt)
         else:
-            self.kv_seq_len += q_len
             key_states, value_states = past_key_value.update(
                 key_states, value_states, self.layer_idx, cache_kwargs)
-        past_key_value._seen_tokens = self.kv_seq_len
-
+            
+            
     key_states = repeat_kv(key_states, self.num_key_value_groups)
     value_states = repeat_kv(value_states, self.num_key_value_groups)
     causal_mask = attention_mask
