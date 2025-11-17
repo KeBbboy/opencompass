@@ -1,0 +1,160 @@
+"""Initialization utilities for snapkv_gqa."""
+
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from typing import List, Optional, Tuple
+from transformers.cache_utils import Cache
+
+
+class SnapKVCluster_gqa():
+
+    def __init__(self,
+                 window_size=64,
+                 max_capacity_prompt=256 + 64,
+                 kernel_size=5,
+                 pooling='avgpool',
+                 merge=None,
+                 recent_size=32,
+                 ratio=0.4):
+        self.window_size = window_size
+        self.max_capacity_prompt = max_capacity_prompt
+        self.ratio = ratio 
+        assert self.max_capacity_prompt - self.window_size > 0
+        self.kernel_size = kernel_size
+        self.pooling = pooling
+        self.merge = merge
+        self.recent_size = recent_size
+        self.ratio = ratio
+        # print(f"🔍 recent_size = {recent_size}, ratio = {ratio}")
+        # print(f"🔍 window_size = {window_size}, max_capacity_prompt = {max_capacity_prompt}, kernel_size = {kernel_size}, pooling = {pooling}, merge = {merge}")
+
+    def reset(self,
+              window_size=64,
+              max_capacity_prompt=256 + 64,
+              kernel_size=5,
+              pooling='avgpool',
+              ratio = 0,
+              merge=None):
+        self.window_size = window_size
+        self.max_capacity_prompt = max_capacity_prompt
+        self.ratio = ratio
+        assert self.max_capacity_prompt - self.window_size > 0
+        self.kernel_size = kernel_size
+        self.pooling = pooling
+        self.merge = merge
+
+
+    def update_kv(self, key_states, query_states, value_states, attention_mask,
+                  num_key_value_groups):
+            # check if prefix phase
+            print("===========================update static sparity (max_capacity_prompt)===========================")
+            # 保存原始的 GQA 格式的 key_states 和 value_states
+            key_states_gqa = key_states  # [bsz, num_key_value_heads, seq_len, head_dim]
+            value_states_gqa = value_states
+
+            assert key_states.shape[-2] == query_states.shape[-2]
+            bsz, num_heads, q_len, head_dim = query_states.shape
+            bsz_k, num_key_value_heads, q_len_k, head_dim_k = key_states_gqa.shape
+
+            if q_len < self.max_capacity_prompt:
+                return key_states_gqa, value_states_gqa
+            else:
+                # 临时扩展 key_states 用于计算 attention weights
+                key_states_expanded = repeat_kv(key_states_gqa, num_key_value_groups)
+
+                attn_weights = torch.matmul(
+                    query_states[..., -self.window_size:, :],
+                    key_states_expanded.transpose(2, 3)) / math.sqrt(head_dim)
+                mask = torch.full((self.window_size, self.window_size),
+                                torch.finfo(attn_weights.dtype).min,
+                                device=attn_weights.device)
+                mask_cond = torch.arange(mask.size(-1), device=attn_weights.device)
+                mask.masked_fill_(
+                    mask_cond < (mask_cond + 1).view(mask.size(-1), 1), 0)
+                mask = mask.to(attn_weights.device)
+                attention_mask = mask[None, None, :, :]
+
+                attn_weights[:, :, -self.window_size:,
+                            -self.window_size:] += attention_mask
+
+                attn_weights = nn.functional.softmax(attn_weights,
+                                                    dim=-1,
+                                                    dtype=torch.float32).to(
+                                                        query_states.dtype)
+                attn_weights_sum = attn_weights[:, :, -self.window_size:, :-self.
+                                                window_size].sum(dim=-2)
+
+                # 将 attention weights 从 MHA 格式聚合回 GQA 格式
+                # [bsz, num_heads, seq_len] -> [bsz, num_key_value_heads, seq_len]
+                attn_weights_sum = attn_weights_sum.view(bsz, num_key_value_heads, num_key_value_groups, -1)
+                attn_weights_sum = attn_weights_sum.mean(dim=2)  # 对每组的多个 query head 求平均
+
+                if self.pooling == 'avgpool':
+                    attn_cache = F.avg_pool1d(attn_weights_sum,
+                                            kernel_size=self.kernel_size,
+                                            padding=self.kernel_size // 2,
+                                            stride=1)
+                elif self.pooling == 'maxpool':
+                    attn_cache = F.max_pool1d(attn_weights_sum,
+                                            kernel_size=self.kernel_size,
+                                            padding=self.kernel_size // 2,
+                                            stride=1)
+                else:
+                    raise ValueError('Pooling method not supported')
+
+                # 基于 GQA 格式选择 top-k indices
+                indices = attn_cache.topk(self.max_capacity_prompt -
+                                        self.window_size,
+                                        dim=-1).indices
+                indices = indices.unsqueeze(-1).expand(-1, -1, -1, head_dim)
+
+                if self.merge is not None:
+                    key_states_gqa, value_states_gqa = merge_kv(key_states_gqa, value_states_gqa,
+                                                        indices, self.window_size,
+                                                        self.merge)
+                    return key_states_gqa, value_states_gqa
+
+                # 对原始 GQA 格式的 key_states 和 value_states 应用 indices
+                k_past_compress = key_states_gqa[:, :, :-self.window_size, :].gather(
+                    dim=2, index=indices)
+                v_past_compress = value_states_gqa[:, :, :-self.window_size, :].gather(
+                    dim=2, index=indices)
+                k_cur = key_states_gqa[:, :, -self.window_size:, :]
+                v_cur = value_states_gqa[:, :, -self.window_size:, :]
+                key_states_gqa = torch.cat([k_past_compress, k_cur], dim=2)
+                value_states_gqa = torch.cat([v_past_compress, v_cur], dim=2)
+
+                # 返回 GQA 格式: [bsz, num_key_value_heads, compressed_seq_len, head_dim]
+                return key_states_gqa, value_states_gqa
+        
+
+
+
+
+def init_snapkv_gqa(self):
+    if not hasattr(self, 'kv_cluster'):
+        if not hasattr(self.config, 'window_size'):
+            self.config.window_size = 16
+        if not hasattr(self.config, 'max_capacity_prompt'):
+            self.config.max_capacity_prompt = 64
+        if not hasattr(self.config, 'ratio'):
+            self.config.ratio = 0.4
+        if not hasattr(self.config, 'kernel_size'):
+            self.config.kernel_size = 7
+        if not hasattr(self.config, 'pooling'):
+            self.config.pooling = 'maxpool'
+        if not hasattr(self.config, 'merge'):
+            self.config.merge = None
+    
+    self.kv_cluster = SnapKVCluster_gqa(
+        window_size=self.config.window_size,
+        max_capacity_prompt=self.config.max_capacity_prompt,
+        ratio = 0.4,
+        kernel_size=7,
+        pooling=self.config.pooling,
+        merge=self.config.merge,
+    )
+
+
