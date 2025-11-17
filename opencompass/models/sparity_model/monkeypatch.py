@@ -19,6 +19,7 @@ from .patches import (
     apply_sparq,
     apply_full,
     apply_full_int8,
+    apply_full_KIVI,
     apply_pyramidkv_gqa,
     apply_snapkv_gqa,
 )
@@ -48,6 +49,7 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False):
         
         'full': apply_full,
         'full_INT8': apply_full_int8,
+        'full_KIVI': apply_full_KIVI,
 
         'pyramidkv_gqa': apply_pyramidkv_gqa,
         'snapkv_gqa': apply_snapkv_gqa,
@@ -88,6 +90,21 @@ def replace_model(self, path=None, model_kwargs=None,
     self.model.config.file_name = f"{path}_{self.model.config.window_size}_{self.model.config.max_capacity_prompt}"
     self.model.config.block_size = self.cache_kwargs.get('block_size', 32)
     self.model.config.ratio = self.cache_kwargs.get('ratio', 0.4)
+
+    # Configure KIVI-specific parameters (if using KIVI method)
+    if hasattr(self, 'kivi_kwargs') and self.kivi_kwargs:
+        self.model.config.k_bits = self.kivi_kwargs.get('k_bits', 2)
+        self.model.config.v_bits = self.kivi_kwargs.get('v_bits', 2)
+        self.model.config.group_size = self.kivi_kwargs.get('group_size', 32)
+        self.model.config.residual_length = self.kivi_kwargs.get('residual_length', 128)
+
+        self.logger.debug(
+            "[KIVI Config Parameters]\\n"
+            f"  k_bits: {self.model.config.k_bits}\\n"
+            f"  v_bits: {self.model.config.v_bits}\\n"
+            f"  group_size: {self.model.config.group_size}\\n"
+            f"  residual_length: {self.model.config.residual_length}"
+        )
 
     # Log configuration
     self.logger.debug(

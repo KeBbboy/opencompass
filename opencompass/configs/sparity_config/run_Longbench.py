@@ -107,7 +107,13 @@ models = [
                 # common parameters
                 window_size=64,
                 max_capacity_prompt=MAX_CAPACITY_PROMPT,
+        ),
+        kivi_kwargs=dict(
+            # KIVI-specific parameters (only used when method='full_KIVI')
+            k_bits=2,              # Key quantization bits (1-8)
+            v_bits=2,              # Value quantization bits (1-8)
+            group_size=32,         # Quantization group size
+            residual_length=128,   # Number of recent tokens kept in full precision
         )
-
     )
 ]
