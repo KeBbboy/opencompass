@@ -19,6 +19,7 @@ logger = logging.get_logger(__name__)
 
 # Import local init function
 from .init_utils import init_snapkv_gqa
+from ..utils.kv_utils import estimate_kv_memory
 
 
 

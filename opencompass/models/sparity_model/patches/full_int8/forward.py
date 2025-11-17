@@ -17,6 +17,8 @@ from transformers.utils import logging
 
 logger = logging.get_logger(__name__)
 
+from ..utils.kv_utils import estimate_kv_memory
+
 
 def llama_sdpa_attn_forward_FULL_INT8_KV(
     self,

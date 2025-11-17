@@ -52,7 +52,7 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False):
         'pyramidkv_gqa': apply_pyramidkv_gqa,
         'snapkv_gqa': apply_snapkv_gqa,
     }
-
+    
     if method in method_handlers:
         # Call the appropriate patch handler
         method_handlers[method](self, path, model_kwargs, is_qwen)
@@ -73,7 +73,6 @@ def replace_model(self, path=None, model_kwargs=None,
 
     model_kwargs['torch_dtype'] = torch.bfloat16
 
-    self.model = load_model_with_fallback(path, model_kwargs)
     # Configure model settings
     model_type = self.model_type
     print(f"================{model_type}===================")
@@ -82,7 +81,8 @@ def replace_model(self, path=None, model_kwargs=None,
     elif "llama" in model_type.lower():
         _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False)
 
-   
+    # Model is already loaded in _apply_method_patches -> apply_simple_patch
+    # self.model = load_model_with_fallback(path, model_kwargs)
     # Configure model settings (after patches to avoid being overwritten)
     self.model.config.window_size = self.cache_kwargs.get('window_size', 64)
     self.model.config.max_capacity_prompt = self.cache_kwargs.get('max_capacity_prompt', 512)

@@ -1,3 +1,74 @@
+import os
+import csv
+from datetime import datetime
+from typing import List, Optional, Tuple
+
+import torch
+from transformers.cache_utils import Cache
+
+
+def estimate_kv_memory(past_key_value, method="unknown", max_capacity_prompt=None, csv_file=None) -> float:
+    """Estimate and log KV cache memory usage."""
+    total_kv_memory = 0
+
+    key_cache = past_key_value.key_cache
+    value_cache = past_key_value.value_cache
+
+    print(f"KV dtype: {key_cache[0].dtype}")
+    print(f"key_cache层数: {len(key_cache)}")
+
+    for i, (k, v) in enumerate(zip(key_cache, value_cache)):
+        if k is not None and v is not None:
+            key_shape = k.shape
+            value_shape = v.shape
+            key_numel = k.numel()
+            val_numel = v.numel()
+            key_mem = key_numel * k.element_size()
+            val_mem = val_numel * v.element_size()
+            layer_mem = (key_mem + val_mem) / (1024 ** 2)
+            if i == 20:
+                print(f"[Layer {i}] key_cache shape: {key_shape}, value_cache shape: {value_shape}")
+                print(f"  ↳ key.numel(): {key_numel}, value.numel(): {val_numel}")
+                print(f"  ↳ key mem: {key_mem / (1024 ** 2):.2f} MB, value mem: {val_mem / (1024 ** 2):.2f} MB")
+
+            total_kv_memory += key_mem + val_mem
+
+    kv_mem_MB = total_kv_memory / (1024 ** 2)
+    print(f"[KV Cache] 当前past_key_value占用内存: {kv_mem_MB:.2f} MB")
+
+    # ===== ✅ 写入 CSV（自动创建，文件名包含 method 和 max_capacity_prompt） =====
+    if csv_file is None:
+        # 创建保存文件夹
+        save_dir = "kv_memory_logs"
+        os.makedirs(save_dir, exist_ok=True)
+
+        # 构建文件名
+        if max_capacity_prompt is not None:
+            filename = f"{method}_{max_capacity_prompt}_kv_mem_log.csv"
+        else:
+            filename = f"{method}_kv_mem_log.csv"
+
+        csv_file = os.path.join(save_dir, filename)
+
+    print(f"[KV Memory] 保存到文件: {csv_file}")
+
+    header = ["timestamp", "kv_memory_MB"]
+    row = [
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        f"{kv_mem_MB:.2f}"
+    ]
+    need_header = not os.path.exists(csv_file)
+
+    with open(csv_file, mode="a", newline="") as f:
+        writer = csv.writer(f)
+        if need_header:
+            writer.writerow(header)
+        writer.writerow(row)
+    # ==================================
+
+    return kv_mem_MB
+
+
 class DynamicCacheSplitHeadFlatten(Cache):
     """adapt from https://github.com/FFY0/AdaKV."""
 
