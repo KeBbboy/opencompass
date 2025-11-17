@@ -45,7 +45,7 @@ class SnapKVCluster():
     def update_kv(self, key_states, query_states, value_states, attention_mask,
                   num_key_value_groups):
             # check if prefix phase
-            print("===========================update static sparity (max_capacity_prompt)===========================")
+            # Removed debug print for performance
             assert key_states.shape[-2] == query_states.shape[-2]
             bsz, num_heads, q_len, head_dim = query_states.shape
 
@@ -116,13 +116,13 @@ def init_snapkv(self):
             self.config.pooling = 'maxpool'
         if not hasattr(self.config, 'merge'):
             self.config.merge = None
-    
-    print(f"SnapKVCluster self.config.window_size,: {self.config.window_size} self.config.max_capacity_prompt {self.config.max_capacity_prompt}")
+
+        
     self.kv_cluster = SnapKVCluster(
-        window_size=self.config.window_size,
-        max_capacity_prompt=self.config.max_capacity_prompt,
-        ratio = 0.4,
-        kernel_size=7,
-        pooling=self.config.pooling,
-        merge=self.config.merge,
+            window_size=self.config.window_size,
+            max_capacity_prompt=self.config.max_capacity_prompt,
+            ratio = 0.4,
+            kernel_size=7,
+            pooling=self.config.pooling,
+            merge=self.config.merge,
     )

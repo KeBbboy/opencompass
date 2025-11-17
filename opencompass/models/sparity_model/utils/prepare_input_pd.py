@@ -21,8 +21,6 @@ from transformers.utils import logging
 import os
 import pandas as pd
 from torch import topk,softmax
-from ..cake.cake_cache import CakeCache, CakeDecodingKVCache_LayerWise
-from ..cake.utils import calculate_entropy
 from transformers.models.llama.modeling_llama import StaticCache
 
 logger = logging.get_logger(__name__)

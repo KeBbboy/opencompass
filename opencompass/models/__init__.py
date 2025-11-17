@@ -53,4 +53,4 @@ from .zhipuai_api import ZhiPuAI  # noqa: F401
 from .zhipuai_v2_api import ZhiPuV2AI  # noqa: F401
 
 # add
-from .sparity_model.sparity_model import Qwen_AttentionConvert 
+from .sparity_model.sparity_model import QwenAttentionConvert 

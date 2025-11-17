@@ -1,7 +1,7 @@
 from mmengine.config import read_base
 from opencompass.models import wenLlamaAttentionConvert
 from opencompass.models import HuggingFacewithChatTemplate
-from opencompass.models import Llama_AttentionConvert,Qwen_AttentionConvert
+from opencompass.models import QwenAttentionConvert
 with read_base():
     # from ..datasets.gsm8k.gsm8k_gen import gsm8k_datasets  
     # # ===== Single-document QA =====
@@ -84,7 +84,7 @@ del _temp_os
 
 # 将需要评测的数据集拼接成 datasets 字段
 datasets = [
-    *needlebench_datasets,
+    *LongBench_narrativeqa_datasets,
     # *LongBench_qasper_datasets,
     # *LongBench_multifieldqa_en_datasets,
     # *LongBench_multifieldqa_zh_datasets
@@ -94,7 +94,7 @@ datasets = [
 
 models = [
     dict(
-        type=Qwen_AttentionConvert,
+        type=QwenAttentionConvert,
         abbr='qwen2.5-7b-instruct-hf',
         path='Qwen/Qwen2.5-7B-Instruct',
         is_use_sparse=True,

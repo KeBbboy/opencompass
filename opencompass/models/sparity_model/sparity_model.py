@@ -29,7 +29,6 @@ from opencompass.utils import get_logger
 import time
 import os
 from datetime import datetime
-_set_model_kwargs_torch_dtype,_get_stopping_criteria,_get_meta_template,_set_model_kwargs_torch_dtype,_get_possible_max_seq_len,_convert_chat_messages
 import json            
 import pprint  
 
@@ -38,7 +37,7 @@ from opencompass.models.sparity_model.utils.common_utils import extract_question
 from opencompass.models.sparity_model.monkeypatch import replace_model
 
 @MODELS.register_module()
-class QwenLlamaAttentionConvert(BaseModel):
+class QwenAttentionConvert(BaseModel):
 
     def __init__(self,
                  path: str,
@@ -64,8 +63,6 @@ class QwenLlamaAttentionConvert(BaseModel):
             self.max_seq_len = other_kwargs.get('max_seq_len', 32768)
             self.method = other_kwargs.pop('method')
             self.model = other_kwargs.pop('path', None)
-            self.arkvale_kwargs = other_kwargs.pop('arkvale_kwargs', {})
-            self.infllm_kwargs = other_kwargs.pop('infllm_kwargs', {})
             self.cache_kwargs = other_kwargs.pop('cache_kwargs', {})
             self.past_key_values = None
         
@@ -343,7 +340,7 @@ class QwenLlamaAttentionConvert(BaseModel):
             
             tokens = self.tokenizer.batch_encode_plus(messages, **tokenize_kwargs)
 
-        if "lcc" in  task_info.lower() or "repobench" in task_info.lower():
+        if task_info and ("lcc" in task_info.lower() or "repobench" in task_info.lower()):
             print("======= specical for lcc or repobench input ========")
             tokens = self.tokenizer.batch_encode_plus([inputs[0][0]['prompt']], **tokenize_kwargs)
 
