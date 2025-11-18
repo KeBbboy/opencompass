@@ -861,7 +861,6 @@ class SnapKVCluster():
     def update_kv(self, key_states, query_states, value_states, attention_mask,
                   num_key_value_groups):
             # check if prefix phase
-            print("===========================update static sparity (max_capacity_prompt)===========================")
             assert key_states.shape[-2] == query_states.shape[-2]
             bsz, num_heads, q_len, head_dim = query_states.shape
 

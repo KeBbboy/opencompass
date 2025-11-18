@@ -68,7 +68,6 @@ class SnapKVCluster_gqa():
     def update_kv(self, key_states, query_states, value_states, attention_mask,
                   num_key_value_groups):
             # check if prefix phase
-            print("===========================update static sparity (max_capacity_prompt)===========================")
             # 保存原始的 GQA 格式的 key_states 和 value_states
             key_states_gqa = key_states  # [bsz, num_key_value_heads, seq_len, head_dim]
             value_states_gqa = value_states

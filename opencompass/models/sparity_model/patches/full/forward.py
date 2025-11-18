@@ -106,7 +106,7 @@ def llama_sdpa_attn_forward_FULL_KV(
         }
         if key_states.shape[-2] != 1:
             # Removed debug prints for performance (layer 23 diagnostics)
-            past_key_value.update(key_states, key_states,
+            past_key_value.update(key_states, value_states,
                                   self.layer_idx, cache_kwargs)
             if self.layer_idx == 27:
                 # 获取 method 和 max_capacity_prompt 参数
@@ -126,7 +126,6 @@ def llama_sdpa_attn_forward_FULL_KV(
             key_states, value_states = past_key_value.update(
                 key_states, value_states, self.layer_idx, cache_kwargs)
        
-        past_key_value._seen_tokens = self.kv_seq_len
 
     key_states = repeat_kv(key_states, self.num_key_value_groups)
     value_states = repeat_kv(value_states, self.num_key_value_groups)
