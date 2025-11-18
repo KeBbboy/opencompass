@@ -97,8 +97,11 @@ def llama_sdpa_attn_forward_PyramidKV(
         cos, sin = position_embeddings
     query_states, key_states = apply_rotary_pos_emb(query_states, key_states,
                                                     cos, sin)
-    
 
+
+    
+    key_states = repeat_kv(key_states, self.num_key_value_groups)
+    value_states = repeat_kv(value_states, self.num_key_value_groups)                                    
     if past_key_value is not None:
         # sin and cos are specific to RoPE models; cache_position needed for the static cache
         cache_kwargs = {
@@ -135,9 +138,6 @@ def llama_sdpa_attn_forward_PyramidKV(
        
             
 
-
-    key_states = repeat_kv(key_states, self.num_key_value_groups)
-    value_states = repeat_kv(value_states, self.num_key_value_groups)
     causal_mask = attention_mask
     if attention_mask is not None:
         causal_mask = causal_mask[:, :, :, :key_states.shape[-2]]

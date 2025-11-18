@@ -106,12 +106,7 @@ def llama_sdpa_attn_forward_FULL_KV(
         }
         if key_states.shape[-2] != 1:
             # Removed debug prints for performance (layer 23 diagnostics)
-            key_states_compress, value_states_compress = self.kv_cluster.update_kv(
-                key_states, query_states, value_states, attention_mask,
-                self.num_key_value_groups)
-
-            
-            past_key_value.update(key_states_compress, value_states_compress,
+            past_key_value.update(key_states, key_states,
                                   self.layer_idx, cache_kwargs)
             if self.layer_idx == 27:
                 # 获取 method 和 max_capacity_prompt 参数
