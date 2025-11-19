@@ -5,21 +5,27 @@
 # 使用环境变量方式传递参数
 
 # ============ 配置参数 ============
-GPU_ID=0
+GPU_ID=1
 CONFIG_FILE="opencompass/configs/sparity_config/run_Longbench.py"
 
 # 定义要测试的方法
 METHODS=(
-    # "full"
-    "pyramidkv"
-    "pyramidkv_gqa"
+    "full_kivi"
 )
 
-# 定义要测试的 max_capacity_prompt 值
-CAPACITIES=(
-    512
-    1024
+# KIVI 参数：测试不同的量化位数
+K_V_BITS=(
+    2
+
 )
+
+# KIVI 参数：测试不同的 group_size
+GROUP_SIZES=(
+    32
+)
+
+# KIVI 参数：residual_length (保持固定)
+RESIDUAL_LENGTH=32
 
 # ============ 脚本开始 ============
 

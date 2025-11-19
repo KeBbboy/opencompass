@@ -69,6 +69,105 @@ def estimate_kv_memory(past_key_value, method="unknown", max_capacity_prompt=Non
     return kv_mem_MB
 
 
+def estimate_kivi_memory(past_key_value, k_bits, v_bits, group_size, residual_length, method="full_kivi") -> float:
+    """
+    Estimate and log KIVI cache memory usage from past_key_value tuple.
+
+    Args:
+        past_key_value: Tuple (key_quant_trans, key_full, key_scale_trans, key_mn_trans,
+                                value_quant, value_full, value_scale, value_mn, kv_seq_len)
+        k_bits: Key quantization bits
+        v_bits: Value quantization bits
+        group_size: Quantization group size
+        residual_length: Residual length
+        method: Method name for logging
+
+    Returns:
+        Total memory in MB
+    """
+    total_memory = 0
+
+    # Extract from tuple
+    key_states_quant_trans = past_key_value[0]
+    key_states_full = past_key_value[1]
+    key_scale_trans = past_key_value[2]
+    key_mn_trans = past_key_value[3]
+    value_states_quant = past_key_value[4]
+    value_states_full = past_key_value[5]
+    value_scale = past_key_value[6]
+    value_mn = past_key_value[7]
+
+    print(f"\n[KIVI Memory] Estimating cache memory")
+    print(f"  Params: k_bits={k_bits}, v_bits={v_bits}, group_size={group_size}, residual={residual_length}")
+
+    # Calculate memory for each component
+    if key_states_quant_trans is not None:
+        key_quant_mem = key_states_quant_trans.numel() * key_states_quant_trans.element_size()
+        total_memory += key_quant_mem
+        print(f"  key_quant: {key_states_quant_trans.shape}, {key_quant_mem / (1024**2):.2f} MB")
+
+    if key_scale_trans is not None:
+        key_scale_mem = key_scale_trans.numel() * key_scale_trans.element_size()
+        total_memory += key_scale_mem
+
+    if key_mn_trans is not None:
+        key_mn_mem = key_mn_trans.numel() * key_mn_trans.element_size()
+        total_memory += key_mn_mem
+
+    if key_states_full is not None:
+        key_full_mem = key_states_full.numel() * key_states_full.element_size()
+        total_memory += key_full_mem
+        print(f"  key_full: {key_states_full.shape}, {key_full_mem / (1024**2):.2f} MB")
+
+    if value_states_quant is not None:
+        value_quant_mem = value_states_quant.numel() * value_states_quant.element_size()
+        total_memory += value_quant_mem
+        print(f"  value_quant: {value_states_quant.shape}, {value_quant_mem / (1024**2):.2f} MB")
+
+    if value_scale is not None:
+        value_scale_mem = value_scale.numel() * value_scale.element_size()
+        total_memory += value_scale_mem
+
+    if value_mn is not None:
+        value_mn_mem = value_mn.numel() * value_mn.element_size()
+        total_memory += value_mn_mem
+
+    if value_states_full is not None:
+        value_full_mem = value_states_full.numel() * value_states_full.element_size()
+        total_memory += value_full_mem
+        print(f"  value_full: {value_states_full.shape}, {value_full_mem / (1024**2):.2f} MB")
+
+    total_memory_mb = total_memory / (1024 ** 2)
+    print(f"\n[KIVI Cache] Total memory usage: {total_memory_mb:.2f} MB")
+
+    # Log to CSV (same directory as estimate_kv_memory)
+    save_dir = "kv_memory_logs"
+    os.makedirs(save_dir, exist_ok=True)
+    filename = f"{method}_kbits{k_bits}_vbits{v_bits}_group{group_size}_residual{residual_length}_kv_mem_log.csv"
+    csv_file = os.path.join(save_dir, filename)
+
+    print(f"[KIVI Memory] Saving to file: {csv_file}")
+
+    header = ["timestamp", "kv_memory_MB", "k_bits", "v_bits", "group_size", "residual_length"]
+    row = [
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        f"{total_memory_mb:.2f}",
+        str(k_bits),
+        str(v_bits),
+        str(group_size),
+        str(residual_length)
+    ]
+    need_header = not os.path.exists(csv_file)
+
+    with open(csv_file, mode="a", newline="") as f:
+        writer = csv.writer(f)
+        if need_header:
+            writer.writerow(header)
+        writer.writerow(row)
+
+    return total_memory_mb
+
+
 class DynamicCacheSplitHeadFlatten(Cache):
     """adapt from https://github.com/FFY0/AdaKV."""
 

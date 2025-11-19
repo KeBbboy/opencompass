@@ -79,12 +79,18 @@ needlebench_datasets = sum((v for k, v in locals().items() if k.endswith('_datas
 import os as _temp_os
 SPARITY_METHOD = _temp_os.getenv('SPARITY_METHOD', 'snapkv')
 MAX_CAPACITY_PROMPT = int(_temp_os.getenv('MAX_CAPACITY_PROMPT', '512'))
+
+# KIVI-specific parameters
+KIVI_K_BITS = int(_temp_os.getenv('KIVI_K_BITS', '2'))
+KIVI_V_BITS = int(_temp_os.getenv('KIVI_V_BITS', '2'))
+KIVI_GROUP_SIZE = int(_temp_os.getenv('KIVI_GROUP_SIZE', '32'))
+KIVI_RESIDUAL_LENGTH = int(_temp_os.getenv('KIVI_RESIDUAL_LENGTH', '32'))
 del _temp_os  
 
 
 # 将需要评测的数据集拼接成 datasets 字段
 datasets = [
-    *LongBench_narrativeqa_datasets,
+    *needlebench_datasets,
     # *LongBench_qasper_datasets,
     # *LongBench_multifieldqa_en_datasets,
     # *LongBench_multifieldqa_zh_datasets
@@ -110,10 +116,10 @@ models = [
         ),
         kivi_kwargs=dict(
             # KIVI-specific parameters (only used when method='full_KIVI')
-            k_bits=2,              # Key quantization bits (1-8)
-            v_bits=2,              # Value quantization bits (1-8)
-            group_size=32,         # Quantization group size
-            residual_length=32,   # Number of recent tokens kept in full precision
+            k_bits=KIVI_K_BITS,              # Key quantization bits (1-8)
+            v_bits=KIVI_V_BITS,              # Value quantization bits (1-8)
+            group_size=KIVI_GROUP_SIZE,         # Quantization group size
+            residual_length=KIVI_RESIDUAL_LENGTH,   # Number of recent tokens kept in full precision
         )
     )
 ]
