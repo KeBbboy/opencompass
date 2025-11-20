@@ -22,6 +22,8 @@ from .patches import (
     apply_full_KIVI,
     apply_pyramidkv_gqa,
     apply_snapkv_gqa,
+    apply_windowkv,
+    apply_chunkkv,
 )
 from .patches.common import (
     load_model_with_fallback,
@@ -46,7 +48,9 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False):
         'cam': apply_cam,
         'l2norm': apply_l2norm,
         'sparq': apply_sparq,
-        
+        'windowkv': apply_windowkv,
+        'chunkkv': apply_chunkkv,
+
         'full': apply_full,
         'full_INT8': apply_full_int8,
         'full_KIVI': apply_full_KIVI,
@@ -104,6 +108,29 @@ def replace_model(self, path=None, model_kwargs=None,
             f"  v_bits: {self.model.config.v_bits}\\n"
             f"  group_size: {self.model.config.group_size}\\n"
             f"  residual_length: {self.model.config.residual_length}"
+        )
+
+    # Configure WindowKV-specific parameters (if using WindowKV method)
+    if self.method == 'windowkv':
+        category = "qa"
+        if category == "qa":
+            self.model.config.window_select_strategy = "max"
+        else:
+            self.model.config.window_select_strategy = "average"
+
+
+        self.logger.debug(
+            "[WindowKV Config Parameters]\\n"
+            f"  window_select_strategy: {self.model.config.window_select_strategy}\\n"
+        )
+
+    # Configure ChunkKV-specific parameters (if using ChunkKV method)
+    if self.method == 'chunkkv':
+        self.model.config.chunk_length = self.cache_kwargs.get('chunk_length', 32)
+
+        self.logger.debug(
+            "[ChunkKV Config Parameters]\\n"
+            f"  chunk_length: {self.model.config.chunk_length}\\n"
         )
 
     # Log configuration
