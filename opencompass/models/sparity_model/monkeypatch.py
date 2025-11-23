@@ -7,7 +7,6 @@ Each method is now organized in its own subdirectory under patches/.
 
 import torch
 import transformers
-from transformers import AutoConfig
 
 from .patches import (
     apply_pyramidkv,
@@ -22,7 +21,9 @@ from .patches import (
     apply_full_KIVI,
     apply_pyramidkv_gqa,
     apply_snapkv_gqa,
+    apply_snapkv_gqa2,
     apply_windowkv,
+    apply_windowkv_gqa,
     apply_chunkkv,
 )
 from .patches.common import (
@@ -31,13 +32,76 @@ from .patches.common import (
 )
 
 
-def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False):
+def _patch_qwen2_model_for_tuple_cache():
+    """Patch Qwen2Model to skip Cache conversion for KIVICache.
+
+    The issue is that Qwen2Model.forward (line 841-922) tries to convert
+    non-Cache objects to DynamicCache, but we need to keep KIVICache as-is.
+    """
+    from transformers.models.qwen2 import modeling_qwen2
+
+    # Import KIVICache class
+    try:
+        from .patches.full_kivi.forward import KIVICache
+    except ImportError:
+        # KIVI not being used, skip patch
+        return
+
+    # Store original forward
+    original_forward = modeling_qwen2.Qwen2Model.forward
+
+    def patched_forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        position_ids=None,
+        past_key_values=None,
+        inputs_embeds=None,
+        use_cache=None,
+        output_attentions=None,
+        output_hidden_states=None,
+        return_dict=None,
+        cache_position=None,
+        **kwargs,
+    ):
+        """Patched forward that uses KIVICache instead of DynamicCache."""
+
+        # If using KIVI method, replace DynamicCache creation with KIVICache
+        # Check if this is None (first call) or already a KIVICache
+        if past_key_values is None and use_cache:
+            # First call - create KIVICache instead of letting Qwen2 create DynamicCache
+            past_key_values = KIVICache()
+        elif isinstance(past_key_values, KIVICache):
+            # Already KIVICache - pass through
+            pass
+
+        # Call original forward - KIVICache will pass isinstance(Cache) check
+        result = original_forward(
+            self,
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+            cache_position=cache_position,
+            **kwargs,
+        )
+
+        return result
+
+    modeling_qwen2.Qwen2Model.forward = patched_forward
+
+
+def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False):  # noqa: ARG001
     """
     Apply method-specific patches based on self.method.
     Unified handler for both Llama and Qwen models.
     """
     method = self.method
-    model_class = "qwen" if is_qwen else "llama"
 
     # Method dispatch mapping
     method_handlers = {
@@ -57,6 +121,8 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False):
 
         'pyramidkv_gqa': apply_pyramidkv_gqa,
         'snapkv_gqa': apply_snapkv_gqa,
+        'snapkv_gqa2': apply_snapkv_gqa2,
+        'windowkv_gqa': apply_windowkv_gqa,
     }
     
     if method in method_handlers:
@@ -71,22 +137,45 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False):
             prepare_inputs_for_generation_llama_new
 
 
+    if method in ['full_KIVI']:
+        # Also patch Qwen2 models
+        transformers.models.qwen2.modeling_qwen2.Qwen2ForCausalLM.prepare_inputs_for_generation = \
+            prepare_inputs_for_generation_llama_new
+
+        # Patch Qwen2Model to handle tuple caches from KIVI
+        _patch_qwen2_model_for_tuple_cache()
+
+
 def replace_model(self, path=None, model_kwargs=None,
                   model_name='meta-llama/Meta-Llama-3.1-8B-Instruct'):
     """Main function to replace and configure model based on method."""
 
     self.logger.debug(f'using model_kwargs: {path}')
 
-    model_kwargs['torch_dtype'] = torch.bfloat16
+    # Ensure device_map is set if not specified
+    if 'device_map' not in model_kwargs:
+        model_kwargs['device_map'] = 'auto'
+
+    # Use FP16 for KIVI CUDA kernel compatibility
+    # KIVI's CUDA kernels only support FP16, not BFloat16
+    model_kwargs['torch_dtype'] = torch.float16
 
     self.model = load_model_with_fallback(path, model_kwargs)
     # Configure model settings
     model_type = self.model_type
     print(f"================{model_type}===================")
+
+    # Debug: Print model device
+    print(f"[DEBUG] Model device after loading: {next(self.model.parameters()).device}")
+    print(f"[DEBUG] model_kwargs: {model_kwargs}")
+
     if "qwen" in model_type.lower():
         _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=True)
     elif "llama" in model_type.lower():
         _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False)
+
+    # Debug: Print model device after patching
+    print(f"[DEBUG] Model device after patching: {next(self.model.parameters()).device}")
 
     # Configure model settings (after patches to avoid being overwritten)
     self.model.config.window_size = self.cache_kwargs.get('window_size', 64)
@@ -111,7 +200,8 @@ def replace_model(self, path=None, model_kwargs=None,
         )
 
     # Configure WindowKV-specific parameters (if using WindowKV method)
-    if self.method == 'windowkv':
+    if self.method in ['windowkv', 'windowkv_gqa']:
+        self.model.config.chunk_length = self.cache_kwargs.get('chunk_length', 8)
         category = "qa"
         if category == "qa":
             self.model.config.window_select_strategy = "max"

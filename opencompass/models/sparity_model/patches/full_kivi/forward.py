@@ -9,20 +9,81 @@ KIVI uses a hybrid approach:
 
 import math
 import warnings
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers.cache_utils import Cache, DynamicCache
+from transformers.cache_utils import Cache
 from transformers.models.llama.modeling_llama import (
     apply_rotary_pos_emb,
-    logger,
     repeat_kv,
-    StaticCache
 )
 from transformers.utils import logging
 
 logger = logging.get_logger(__name__)
+
+
+# KIVI Cache class to make it compatible with transformers' Cache API
+class KIVICache(Cache):
+    """
+    Custom Cache class for KIVI that stores quantized KV cache.
+
+    This class extends transformers.cache_utils.Cache to be properly recognized
+    by Qwen2Model and other transformer models.
+    """
+    def __init__(self):
+        super().__init__()
+        # Store KIVI cache tuples for each layer
+        # Each tuple: (k_quant, k_full, k_scale, k_mn, v_quant, v_full, v_scale, v_mn, kv_seq_len)
+        self.key_cache = []  # List of KIVI cache tuples per layer
+        self._seen_tokens = 0  # For compatibility
+
+    def update(self, key_states, value_states, layer_idx, cache_kwargs=None):  # noqa: ARG002
+        """
+        Update cache for a specific layer with KIVI cache tuple.
+
+        For KIVI, key_states is the full KIVI cache tuple, value_states is unused.
+        """
+        # For KIVI, we expect key_states to be the full cache tuple
+        if isinstance(key_states, tuple) and len(key_states) == 9:
+            # Ensure we have enough layers
+            while len(self.key_cache) <= layer_idx:
+                self.key_cache.append(None)
+
+            self.key_cache[layer_idx] = key_states
+            # Update sequence length from cache tuple
+            self._seen_tokens = key_states[-1]  # kv_seq_len is the last element
+
+            # Return empty tensors (not used in KIVI forward)
+            return key_states[1], key_states[5]  # key_states_full, value_states_full
+        else:
+            raise ValueError(f"KIVI Cache expects 9-tuple, got {type(key_states)}")
+
+    def get_seq_length(self, layer_idx=0):
+        """Get the sequence length for a specific layer."""
+        if layer_idx < len(self.key_cache) and self.key_cache[layer_idx] is not None:
+            return self.key_cache[layer_idx][-1]  # kv_seq_len
+        return 0
+
+    def get_max_length(self):
+        """Get maximum cache length (for compatibility)."""
+        return None  # Dynamic cache has no max length
+
+    def to_legacy_cache(self):
+        """Convert to legacy tuple format (tuple of layer caches)."""
+        return tuple(self.key_cache)
+
+    def __len__(self):
+        return len(self.key_cache)
+
+    def __getitem__(self, layer_idx):
+        """Get cache for a specific layer."""
+        if layer_idx < len(self.key_cache):
+            return self.key_cache[layer_idx]
+        return None
+
+    def __repr__(self):
+        return f"KIVICache(num_layers={len(self.key_cache)}, seq_length={self._seen_tokens})"
 
 # Import KIVI quantization utilities
 try:
@@ -47,7 +108,7 @@ def llama_sdpa_attn_forward_FULL_KIVI(
     attention_mask: Optional[torch.Tensor] = None,
     position_ids: Optional[torch.LongTensor] = None,
     past_key_value: Optional[Tuple[torch.Tensor]] = None,
-    output_attentions: bool = False,
+    output_attentions: bool = False,  # noqa: ARG001
     use_cache: bool = False,
     **kwargs,
 ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
@@ -79,34 +140,66 @@ def llama_sdpa_attn_forward_FULL_KIVI(
 
     bsz, q_len, _ = hidden_states.size()
 
-    # Project to Q, K, V
-    if self.config.pretraining_tp > 1:
-        key_value_slicing = (self.num_key_value_heads * self.head_dim) // self.config.pretraining_tp
-        query_slices = self.q_proj.weight.split(
-            (self.num_heads * self.head_dim) // self.config.pretraining_tp, dim=0
-        )
-        key_slices = self.k_proj.weight.split(key_value_slicing, dim=0)
-        value_slices = self.v_proj.weight.split(key_value_slicing, dim=0)
 
-        query_states = [F.linear(hidden_states, query_slices[i]) for i in range(self.config.pretraining_tp)]
-        query_states = torch.cat(query_states, dim=-1)
-
-        key_states = [F.linear(hidden_states, key_slices[i]) for i in range(self.config.pretraining_tp)]
-        key_states = torch.cat(key_states, dim=-1)
-
-        value_states = [F.linear(hidden_states, value_slices[i]) for i in range(self.config.pretraining_tp)]
-        value_states = torch.cat(value_states, dim=-1)
-    else:
-        query_states = self.q_proj(hidden_states)
-        key_states = self.k_proj(hidden_states)
-        value_states = self.v_proj(hidden_states)
+    query_states = self.q_proj(hidden_states)
+    key_states = self.k_proj(hidden_states)
+    value_states = self.v_proj(hidden_states)
 
     query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
     key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
     value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
 
+    # Handle different cache types
+    original_cache = past_key_value  # Keep reference to original cache object
+    layer_past_kv = None
+    layer_idx = self.layer_idx if hasattr(self, 'layer_idx') else 0
+
+    if past_key_value is not None:
+        if isinstance(past_key_value, KIVICache):
+            # Extract cache for this layer
+            layer_past_kv = past_key_value[layer_idx]
+
+        elif isinstance(past_key_value, tuple):
+            # Legacy format: could be tuple of tuples (all layers) or single layer tuple
+            if len(past_key_value) > 0 and isinstance(past_key_value[0], tuple):
+                # Tuple of tuples - extract this layer's cache
+                if layer_idx < len(past_key_value):
+                    layer_past_kv = past_key_value[layer_idx]
+            elif len(past_key_value) == 9:
+                # Single layer KIVI tuple
+                layer_past_kv = past_key_value
+            else:
+                # Unknown tuple format
+                layer_past_kv = None
+
+        else:
+            # Try other Cache types (DynamicCache, etc.)
+            if isinstance(past_key_value, Cache):
+                # Convert DynamicCache to KIVICache ONCE (shared across all layers)
+                past_key_value_tuple = past_key_value.to_legacy_cache()
+                if len(past_key_value_tuple) == 0:
+                    # Empty cache - create new KIVICache for this forward pass
+                    original_cache = KIVICache()
+                    layer_past_kv = None
+                else:
+                    # Non-empty cache - convert entire DynamicCache to KIVICache
+                    original_cache = KIVICache()
+                    for idx, layer_cache in enumerate(past_key_value_tuple):
+                        if layer_cache is not None:
+                            original_cache.update(layer_cache, None, idx)
+                    # Extract this layer's cache
+                    layer_past_kv = original_cache[layer_idx]
+            else:
+                raise TypeError(
+                    f"KIVI forward expects KIVICache, tuple, or Cache object, but got {type(past_key_value)}"
+                )
+
+    # Rename for clarity: layer_past_kv is the KIVI tuple for this specific layer
+    past_key_value = layer_past_kv
+
     kv_seq_len = key_states.shape[-2]
     if past_key_value is not None:
+        # KIVI uses custom tuple format: (k_quant, k_full, k_scale, k_mn, v_quant, v_full, v_scale, v_mn, seq_len)
         kv_seq_len += past_key_value[-1]
 
     cos, sin = self.rotary_emb(value_states, position_ids)
@@ -291,25 +384,42 @@ def llama_sdpa_attn_forward_FULL_KIVI(
                 v_bits
             )
 
-    past_key_value = (
-        key_states_quant_trans, key_states_full, key_scale_trans, key_mn_trans,
-        value_states_quant, value_states_full, value_scale, value_mn, kv_seq_len
-    ) if use_cache else None
+    # Prepare cache for return
+    if use_cache:
+        # Create KIVI cache tuple for this layer
+        kivi_cache_tuple = (
+            key_states_quant_trans, key_states_full, key_scale_trans, key_mn_trans,
+            value_states_quant, value_states_full, value_scale, value_mn, kv_seq_len
+        )
+
+        # Estimate memory usage at layer 27 (only during prefill)
+        if layer_idx == 27 and q_len > 1:
+            method = getattr(self.config, 'method', 'full_kivi')
+            print(f"\n[KIVI Memory] Prefill phase completed (q_len={q_len})")
+            estimate_kivi_memory(kivi_cache_tuple, k_bits, v_bits, group_size, residual_length, method)
+
+        # Update cache using the Cache API
+        if isinstance(original_cache, KIVICache):
+            # Update KIVICache and return it (cache is shared across layers)
+            original_cache.update(kivi_cache_tuple, None, layer_idx)
+            return_cache = original_cache
+        elif original_cache is None:
+            # First layer in first forward pass - create new KIVICache
+            return_cache = KIVICache()
+            return_cache.update(kivi_cache_tuple, None, layer_idx)
+        else:
+            # Shouldn't reach here if logic above is correct
+            raise RuntimeError(
+                f"Unexpected cache type after processing: {type(original_cache)}. "
+                "Expected KIVICache or None."
+            )
+    else:
+        return_cache = None
 
     attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
 
-    if self.config.pretraining_tp > 1:
-        attn_output = attn_output.split(self.hidden_size // self.config.pretraining_tp, dim=2)
-        o_proj_slices = self.o_proj.weight.split(self.hidden_size // self.config.pretraining_tp, dim=1)
-        attn_output = sum([F.linear(attn_output[i], o_proj_slices[i]) for i in range(self.config.pretraining_tp)])
-    else:
-        attn_output = self.o_proj(attn_output)
 
-    # Estimate memory usage at layer 27 (only during prefill)
-    if self.layer_idx == 27 and past_key_value is not None and q_len > 1:
-        method = getattr(self.config, 'method', 'full_kivi')
-        print(f"\n[KIVI Memory] Prefill phase completed (q_len={q_len})")
-        estimate_kivi_memory(past_key_value, k_bits, v_bits, group_size, residual_length, method)
+    attn_output = self.o_proj(attn_output)
 
     attn_weights = None
-    return attn_output, attn_weights, past_key_value
+    return attn_output, attn_weights, return_cache

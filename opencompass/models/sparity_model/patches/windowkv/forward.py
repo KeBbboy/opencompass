@@ -98,6 +98,21 @@ def llama_sdpa_attn_forward_windowkv(
             self.kv_seq_len = kv_seq_len
             key_states_compress, value_states_compress = self.kv_cluster.update_kv(key_states, query_states, value_states, attention_mask, self.num_key_value_groups)
             past_key_value.update(key_states_compress, value_states_compress, self.layer_idx, cache_kwargs)
+        
+            if self.layer_idx == 27:
+                # 获取 method 和 max_capacity_prompt 参数
+                method = getattr(self.config, 'method', 'unknown')
+                max_capacity_prompt = None
+                if hasattr(self.config, 'max_capacity_prompt'):
+                    max_capacity_prompt = self.config.max_capacity_prompt
+                elif hasattr(self.config, 'cache_kwargs') and 'max_capacity_prompt' in self.config.cache_kwargs:
+                    max_capacity_prompt = self.config.cache_kwargs['max_capacity_prompt']
+
+                # 如果 method 是 "full"，则不在文件名中添加 max_capacity_prompt
+                if isinstance(method, str) and method.lower() == "full":
+                    max_capacity_prompt = None
+
+                estimate_kv_memory(past_key_value, method=method, max_capacity_prompt=max_capacity_prompt)
         else:
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
     

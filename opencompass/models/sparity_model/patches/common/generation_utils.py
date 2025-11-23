@@ -79,10 +79,39 @@ def prepare_inputs_for_generation_llama_new(
     **kwargs,
 ):
     """Prepare inputs for generation with custom KV cache handling."""
-    if not isinstance(past_key_values, tuple):
-        if len(past_key_values.key_cache) == 0:
-            for layer in self.model.layers:
-                layer.self_attn.kv_seq_len = 0
+    from transformers.cache_utils import DynamicCache, Cache
+
+    # Import KIVICache if available
+    try:
+        from ..full_kivi.forward import KIVICache
+    except ImportError:
+        KIVICache = None
+
+    # Handle different cache types
+    if isinstance(past_key_values, DynamicCache):
+        # Convert DynamicCache to legacy tuple format for KIVI and similar methods
+        past_key_values = past_key_values.to_legacy_cache()
+        if len(past_key_values) == 0:
+            past_key_values = None
+    elif KIVICache is not None and isinstance(past_key_values, KIVICache):
+        # Keep KIVICache as-is, don't convert to tuple
+        # This is critical for Qwen2 compatibility
+        pass
+
+    # Handle cache initialization for non-tuple caches
+    if past_key_values is not None:
+        if KIVICache is not None and isinstance(past_key_values, KIVICache):
+            # KIVICache: check if empty
+            if len(past_key_values.key_cache) == 0:
+                for layer in self.model.layers:
+                    if hasattr(layer.self_attn, 'kv_seq_len'):
+                        layer.self_attn.kv_seq_len = 0
+        elif not isinstance(past_key_values, tuple):
+            # Other cache types
+            if hasattr(past_key_values, 'key_cache') and len(past_key_values.key_cache) == 0:
+                for layer in self.model.layers:
+                    if hasattr(layer.self_attn, 'kv_seq_len'):
+                        layer.self_attn.kv_seq_len = 0
 
     # If we have cache: let's slice `input_ids` through `cache_position`, to keep only the unprocessed tokens
     # Exception 1: when passing input_embeds, input_ids may be missing entries

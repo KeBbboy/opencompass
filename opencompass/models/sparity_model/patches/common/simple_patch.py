@@ -6,7 +6,8 @@ from .utils import load_model_with_fallback, configure_basic_cache
 
 def apply_simple_patch(self, path, model_kwargs, forward_func, model_class="llama"):
     """Apply a simple forward function patch for methods like PyramidKV, StreamingLLM, etc."""
-    self.model = load_model_with_fallback(path, model_kwargs)
+    # Note: Model is already loaded in replace_model(), so we don't reload it here
+    # self.model = load_model_with_fallback(path, model_kwargs)
     configure_basic_cache(self.model, self.cache_kwargs, method=self.method)
 
     if model_class == "llama":

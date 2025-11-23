@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 批量运行实验脚本
-# 遍历不同的 method 和 max_capacity_prompt 参数
+# 遍历不同的 method, max_capacity_prompt 和 torch_dtype 参数
 # 使用环境变量方式传递参数
 
 # ============ 配置参数 ============
@@ -10,15 +10,30 @@ CONFIG_FILE="opencompass/configs/sparity_config/run_Longbench.py"
 
 # 定义要测试的方法
 METHODS=(
-    # "full"
-    "pyramidkv"
-    "pyramidkv_gqa"
+    "full"
+    # "pyramidkv"
+    # "pyramidkv_gqa"
+    # "snapkv"
+    # "snapkv_gqa"
+    # "snapkv_gqa2"
+    # "windowkv"
+    # "windowkv_gqa"
 )
 
 # 定义要测试的 max_capacity_prompt 值
 CAPACITIES=(
-    512
-    1024
+    # 8192
+    # 4096
+    # 2048
+    # 1024
+    # 256
+    256
+)
+
+# 定义要测试的 torch_dtype 值
+DTYPES=(
+    # "float16"
+    "bfloat16"    
 )
 
 # ============ 脚本开始 ============
@@ -38,32 +53,35 @@ echo "=========================================="
 # 遍历所有组合
 for method in "${METHODS[@]}"; do
     for capacity in "${CAPACITIES[@]}"; do
-        echo ""
-        echo "=========================================="
-        echo "运行实验: method=$method, capacity=$capacity"
-        echo "时间: $(date '+%Y-%m-%d %H:%M:%S')"
-        echo "=========================================="
+        for dtype in "${DTYPES[@]}"; do
+            echo ""
+            echo "=========================================="
+            echo "运行实验: method=$method, capacity=$capacity, dtype=$dtype"
+            echo "时间: $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "=========================================="
 
-        # 运行实验（通过环境变量传递参数）
-        LOG_FILE="$LOG_DIR/${method}_capacity${capacity}.log"
-        echo "日志文件: $LOG_FILE"
+            # 运行实验（通过环境变量传递参数）
+            LOG_FILE="$LOG_DIR/${method}_capacity${capacity}_${dtype}.log"
+            echo "日志文件: $LOG_FILE"
 
-        CUDA_VISIBLE_DEVICES=$GPU_ID \
-        SPARITY_METHOD=$method \
-        MAX_CAPACITY_PROMPT=$capacity \
-        python run.py "$CONFIG_FILE" --debug 2>&1 | tee "$LOG_FILE"
+            CUDA_VISIBLE_DEVICES=$GPU_ID \
+            SPARITY_METHOD=$method \
+            MAX_CAPACITY_PROMPT=$capacity \
+            TORCH_DTYPE=$dtype \
+            python run.py "$CONFIG_FILE" --debug 2>&1 | tee "$LOG_FILE"
 
-        EXIT_CODE=${PIPESTATUS[0]}
-        if [ $EXIT_CODE -eq 0 ]; then
-            echo "✓ 实验成功完成"
-            echo "SUCCESS" >> "$LOG_FILE"
-        else
-            echo "✗ 实验失败 (退出码: $EXIT_CODE)"
-            echo "FAILED: exit code $EXIT_CODE" >> "$LOG_FILE"
-        fi
+            EXIT_CODE=${PIPESTATUS[0]}
+            if [ $EXIT_CODE -eq 0 ]; then
+                echo "✓ 实验成功完成"
+                echo "SUCCESS" >> "$LOG_FILE"
+            else
+                echo "✗ 实验失败 (退出码: $EXIT_CODE)"
+                echo "FAILED: exit code $EXIT_CODE" >> "$LOG_FILE"
+            fi
 
-        # 休息几秒，让 GPU 冷却
-        sleep 5
+            # 休息几秒，让 GPU 冷却
+            sleep 5
+        done
     done
 done
 

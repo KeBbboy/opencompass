@@ -1,7 +1,7 @@
 import math
 import torch
 import torch.nn.functional as F
-
+from transformers.models.llama.modeling_llama import repeat_kv
 
 
 
@@ -41,7 +41,7 @@ class WindowKVCluster():
 
                 for idx in range(num_groups):
                     layers_budget.extend([groups_budget[idx] for _ in range(self.shared_layers)])
-            
+
             WindowKVCluster.layers_budget = layers_budget
 
 
@@ -59,18 +59,31 @@ class WindowKVCluster():
 
 
     def update_kv(self, key_states, query_states, value_states, attention_mask, num_key_value_groups):
-        
+        """
+        GQA-optimized KV compression: operates on original num_key_value_heads to save memory.
+
+        Input shapes:
+            key_states:   [bsz, num_key_value_heads, seq_len, head_dim] (e.g., [1, 4, 32768, 128])
+            query_states: [bsz, num_heads, seq_len, head_dim]            (e.g., [1, 28, 32768, 128])
+            value_states: [bsz, num_key_value_heads, seq_len, head_dim]
+
+        Output shapes:
+            key_states_compressed:   [bsz, num_key_value_heads, compressed_len, head_dim]
+            value_states_compressed: [bsz, num_key_value_heads, compressed_len, head_dim]
+        """
         # check if prefilling phase
         assert key_states.shape[-2] == query_states.shape[-2]
-        bsz, num_heads, q_len, head_dim = query_states.shape
-        len_review = q_len-self.suffix_size
-        
+        bsz, num_kv_heads, q_len, head_dim = key_states.shape
+        bsz, num_q_heads, q_len, head_dim = query_states.shape
+        len_review = q_len - self.suffix_size
+
 
         if len_review <= WindowKVCluster.layers_budget[self.layer_idx]:
             return key_states, value_states
 
 
         elif self.layer_idx % self.shared_layers != 0:
+            # Reuse cached window indices from the first layer in this group
             review_key_states = key_states[..., :-self.suffix_size, :]
             review_value_states = value_states[..., :-self.suffix_size, :]
             selected_key_states = []
@@ -85,7 +98,7 @@ class WindowKVCluster():
             k_past_compressed = torch.cat(selected_key_states, dim=-2)
             v_past_compressed = torch.cat(selected_value_states, dim=-2)
 
-            
+
             k_cur = key_states[..., -self.suffix_size:, :]
             v_cur = value_states[..., -self.suffix_size:, :]
 
@@ -93,10 +106,14 @@ class WindowKVCluster():
             value_states = torch.cat([v_past_compressed, v_cur], dim = -2)
 
             return key_states, value_states
-        
-        else:
 
-            attn_weights = torch.matmul(query_states[..., -self.suffix_size:, :], key_states.transpose(2, 3)) / math.sqrt(head_dim)
+        else:
+            # Compute window selection (first layer in the group)
+            # Temporarily repeat KV for attention computation
+
+            key_states_expanded = repeat_kv(key_states, num_key_value_groups)
+
+            attn_weights = torch.matmul(query_states[..., -self.suffix_size:, :], key_states_expanded.transpose(2, 3)) / math.sqrt(head_dim)
             mask = torch.full((self.suffix_size, self.suffix_size), torch.finfo(attn_weights.dtype).min, device=attn_weights.device)
             mask_cond = torch.arange(mask.size(-1), device=attn_weights.device)
             mask.masked_fill_(mask_cond < (mask_cond + 1).view(mask.size(-1), 1), 0)
@@ -104,9 +121,9 @@ class WindowKVCluster():
             attention_mask = mask[None, None, :, :]
 
             attn_weights[:, :, -self.suffix_size:, -self.suffix_size:] += attention_mask
-            attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype) 
-            attn_weights_sum = attn_weights[:, :, -self.suffix_size:, : -self.suffix_size].sum(dim = -2) 
-            
+            attn_weights = F.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+            attn_weights_sum = attn_weights[:, :, -self.suffix_size:, : -self.suffix_size].sum(dim = -2)
+
 
             num_windows = (len_review + self.review_window_size - 1) // self.review_window_size
             review_windows = []
@@ -118,18 +135,21 @@ class WindowKVCluster():
                 review_windows.append((_i, window_score))
 
             self.bottom_k = math.ceil((len_review - WindowKVCluster.layers_budget[self.layer_idx]) / self.review_window_size)
-            
+
             if self.bottom_k * self.review_window_size >= len_review:
+                # Keep only suffix (extreme compression case)
                 key_states = key_states[..., -self.suffix_size:, :]
                 value_states = value_states[..., -self.suffix_size:, :]
 
                 return key_states, value_states
 
 
-            else: 
+            else:
+                # Select top-k windows and apply to original num_key_value_heads
                 review_windows = sorted(review_windows, key=lambda x: x[1], reverse=True)[:-self.bottom_k]
                 selected_windows_indices = [x[0] for x in review_windows]
 
+                # Apply window selection on ORIGINAL key_states (num_key_value_heads, not expanded)
                 review_key_states = key_states[..., :-self.suffix_size, :]
                 review_value_states = value_states[..., :-self.suffix_size, :]
                 selected_key_states = []
@@ -144,15 +164,18 @@ class WindowKVCluster():
 
                 k_past_compressed = torch.cat(selected_key_states, dim=-2)
                 v_past_compressed = torch.cat(selected_value_states, dim=-2)
-                
+
                 k_cur = key_states[..., -self.suffix_size:, :]
                 v_cur = value_states[..., -self.suffix_size:, :]
 
 
-                key_states = torch.cat([k_past_compressed, k_cur], dim = -2)
-                value_states = torch.cat([v_past_compressed, v_cur], dim = -2)
+                key_states_compressed = torch.cat([k_past_compressed, k_cur], dim = -2)
+                value_states_compressed = torch.cat([v_past_compressed, v_cur], dim = -2)
                 WindowKVCluster.cached_selected_window_indices = selected_windows_indices
-                return key_states, value_states
+
+                # Return compressed KV with original num_key_value_heads shape
+                # e.g., [bsz, 4, compressed_len, head_dim] instead of [bsz, 28, compressed_len, head_dim]
+                return key_states_compressed, value_states_compressed
             
 
 
@@ -187,7 +210,7 @@ def init_WindowKV(self, num_hidden_layers):
               window_select_strategy = self.config.window_select_strategy,  # "max" 或 "average"
 
               # ----- 层间共享参数 -----
-              shared_layers = 7,  # 每shared_layers层为一组，组内共享窗口选择索引（减少计算）
+              shared_layers = 1,  # 每shared_layers层为一组，组内共享窗口选择索引（减少计算）
 
               # ----- 预算分配参数 -----
               max_capacity_prompt = self.config.max_capacity_prompt,  # 所有层的平均KV cache大小

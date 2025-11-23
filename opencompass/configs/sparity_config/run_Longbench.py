@@ -77,7 +77,7 @@ needlebench_datasets = sum((v for k, v in locals().items() if k.endswith('_datas
 
 # Read parameters from environment variables with defaults
 import os as _temp_os
-SPARITY_METHOD = _temp_os.getenv('SPARITY_METHOD', 'full')
+SPARITY_METHOD = _temp_os.getenv('SPARITY_METHOD', 'snapkv_global')
 MAX_CAPACITY_PROMPT = int(_temp_os.getenv('MAX_CAPACITY_PROMPT', '512'))
 
 # KIVI-specific parameters
@@ -90,6 +90,7 @@ del _temp_os
 
 # 将需要评测的数据集拼接成 datasets 字段
 datasets = [
+    # *needlebench_datasets
     *LongBench_narrativeqa_datasets,
     # *LongBench_qasper_datasets,
     # *LongBench_multifieldqa_en_datasets,
@@ -101,10 +102,10 @@ datasets = [
 models = [
     dict(
         type=QwenAttentionConvert,
-        abbr='qwen2.5-14b-instruct-hf',
-        path='Qwen/Qwen2.5-14B-Instruct',
-        # abbr='qwen2.5-7b-instruct-hf',
-        # path='Qwen/Qwen2.5-7B-Instruct',
+        # abbr='qwen2.5-14b-instruct-hf',
+        # path='Qwen/Qwen2.5-14B-Instruct',
+        abbr='qwen2.5-7b-instruct-hf',
+        path='Qwen/Qwen2.5-7B-Instruct',
         is_use_sparse=True,
         max_seq_len=32768,
         max_out_len=256,
@@ -115,6 +116,9 @@ models = [
                 # common parameters
                 window_size=64,
                 max_capacity_prompt=MAX_CAPACITY_PROMPT,
+                chunk_length = 8
+                # NOTE: For ChunkKV method, ensure (max_capacity_prompt - window_size) % chunk_length == 0
+                # Current: (512 - 64) % 8 = 448 % 8 = 0 ✓
         ),
         kivi_kwargs=dict(
             # KIVI-specific parameters (only used when method='full_KIVI')

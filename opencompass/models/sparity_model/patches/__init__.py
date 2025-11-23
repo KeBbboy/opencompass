@@ -12,7 +12,9 @@ from .full_int8 import apply_full_int8
 from .full_kivi import apply_full_KIVI
 from .pyramidkv_gqa import apply_pyramidkv_gqa
 from .snapkv_gqa import apply_snapkv_gqa
+from .snapkv_gqa2 import apply_snapkv_gqa2
 from .windowkv import apply_windowkv
+from .windowkv_gqa import apply_windowkv_gqa
 from .chunkkv import apply_chunkkv
 
 __all__ = [
@@ -28,6 +30,8 @@ __all__ = [
     'apply_full_KIVI',
     'apply_pyramidkv_gqa',
     'apply_snapkv_gqa',
+    'apply_snapkv_gqa2',
     'apply_windowkv',
+    'apply_windowkv_gqa',
     'apply_chunkkv',
 ]

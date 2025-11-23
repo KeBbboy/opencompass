@@ -5,17 +5,19 @@
 # 使用环境变量方式传递参数
 
 # ============ 配置参数 ============
-GPU_ID=1
+GPU_ID=0
 CONFIG_FILE="opencompass/configs/sparity_config/run_Longbench.py"
 
 # 定义要测试的方法
 METHODS=(
-    "full_kivi"
+    "full_KIVI"
 )
 
 # KIVI 参数：测试不同的量化位数
 K_V_BITS=(
     2
+    4
+    8
 
 )
 
@@ -43,33 +45,38 @@ echo "=========================================="
 
 # 遍历所有组合
 for method in "${METHODS[@]}"; do
-    for capacity in "${CAPACITIES[@]}"; do
-        echo ""
-        echo "=========================================="
-        echo "运行实验: method=$method, capacity=$capacity"
-        echo "时间: $(date '+%Y-%m-%d %H:%M:%S')"
-        echo "=========================================="
+    for k_v_bit in "${K_V_BITS[@]}"; do
+        for group_size in "${GROUP_SIZES[@]}"; do
+            echo ""
+            echo "=========================================="
+            echo "运行实验: method=$method, k_v_bit=$k_v_bit, group_size=$group_size, residual_length=$RESIDUAL_LENGTH"
+            echo "时间: $(date '+%Y-%m-%d %H:%M:%S')"
+            echo "=========================================="
 
-        # 运行实验（通过环境变量传递参数）
-        LOG_FILE="$LOG_DIR/${method}_capacity${capacity}.log"
-        echo "日志文件: $LOG_FILE"
+            # 运行实验（通过环境变量传递参数）
+            LOG_FILE="$LOG_DIR/${method}_kbit${k_v_bit}_group${group_size}_residual${RESIDUAL_LENGTH}.log"
+            echo "日志文件: $LOG_FILE"
 
-        CUDA_VISIBLE_DEVICES=$GPU_ID \
-        SPARITY_METHOD=$method \
-        MAX_CAPACITY_PROMPT=$capacity \
-        python run.py "$CONFIG_FILE" --debug 2>&1 | tee "$LOG_FILE"
+            CUDA_VISIBLE_DEVICES=$GPU_ID \
+            SPARITY_METHOD=$method \
+            KIVI_K_BITS=$k_v_bit \
+            KIVI_V_BITS=$k_v_bit \
+            KIVI_GROUP_SIZE=$group_size \
+            KIVI_RESIDUAL_LENGTH=$RESIDUAL_LENGTH \
+            python run.py "$CONFIG_FILE" --debug 2>&1 | tee "$LOG_FILE"
 
-        EXIT_CODE=${PIPESTATUS[0]}
-        if [ $EXIT_CODE -eq 0 ]; then
-            echo "✓ 实验成功完成"
-            echo "SUCCESS" >> "$LOG_FILE"
-        else
-            echo "✗ 实验失败 (退出码: $EXIT_CODE)"
-            echo "FAILED: exit code $EXIT_CODE" >> "$LOG_FILE"
-        fi
+            EXIT_CODE=${PIPESTATUS[0]}
+            if [ $EXIT_CODE -eq 0 ]; then
+                echo "✓ 实验成功完成"
+                echo "SUCCESS" >> "$LOG_FILE"
+            else
+                echo "✗ 实验失败 (退出码: $EXIT_CODE)"
+                echo "FAILED: exit code $EXIT_CODE" >> "$LOG_FILE"
+            fi
 
-        # 休息几秒，让 GPU 冷却
-        sleep 5
+            # 休息几秒，让 GPU 冷却
+            sleep 5
+        done
     done
 done
 
