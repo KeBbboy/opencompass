@@ -22,9 +22,15 @@ from .patches import (
     apply_pyramidkv_gqa,
     apply_snapkv_gqa,
     apply_snapkv_gqa2,
+    apply_snapkv_gqa3,
     apply_windowkv,
     apply_windowkv_gqa,
     apply_chunkkv,
+    apply_min_max_gqa,
+    apply_min_max_gqa_global,
+    apply_min_max_gqa_chunk,
+    apply_min_max_gqa_chunk_global,
+    apply_snapkv_gqa_chunk_global,
 )
 from .patches.common import (
     load_model_with_fallback,
@@ -122,7 +128,13 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False): 
         'pyramidkv_gqa': apply_pyramidkv_gqa,
         'snapkv_gqa': apply_snapkv_gqa,
         'snapkv_gqa2': apply_snapkv_gqa2,
+        'snapkv_gqa3': apply_snapkv_gqa3,
         'windowkv_gqa': apply_windowkv_gqa,
+        'min_max_gqa': apply_min_max_gqa,
+        'min_max_gqa_global': apply_min_max_gqa_global,
+        'min_max_gqa_chunk': apply_min_max_gqa_chunk,
+        'min_max_gqa_chunk_global': apply_min_max_gqa_chunk_global,
+        'snapkv_gqa_chunk_global': apply_snapkv_gqa_chunk_global,
     }
     
     if method in method_handlers:
@@ -190,6 +202,15 @@ def replace_model(self, path=None, model_kwargs=None,
         self.model.config.v_bits = self.kivi_kwargs.get('v_bits', 2)
         self.model.config.group_size = self.kivi_kwargs.get('group_size', 32)
         self.model.config.residual_length = self.kivi_kwargs.get('residual_length', 128)
+
+        # Force print to ensure visibility
+        print("\n" + "="*60)
+        print("[KIVI Config Parameters]")
+        print(f"  k_bits: {self.model.config.k_bits}")
+        print(f"  v_bits: {self.model.config.v_bits}")
+        print(f"  group_size: {self.model.config.group_size}")
+        print(f"  residual_length: {self.model.config.residual_length}")
+        print("="*60 + "\n")
 
         self.logger.debug(
             "[KIVI Config Parameters]\\n"

@@ -210,7 +210,7 @@ def init_WindowKV(self, num_hidden_layers):
               window_select_strategy = self.config.window_select_strategy,  # "max" 或 "average"
 
               # ----- 层间共享参数 -----
-              shared_layers = 1,  # 每shared_layers层为一组，组内共享窗口选择索引（减少计算）
+              shared_layers = 7,  # 每shared_layers层为一组，组内共享窗口选择索引（减少计算）
 
               # ----- 预算分配参数 -----
               max_capacity_prompt = self.config.max_capacity_prompt,  # 所有层的平均KV cache大小

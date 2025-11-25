@@ -1,4 +1,4 @@
-"""Initialization utilities for snapkv_gqa2."""
+"""Initialization utilities for snapkv_gqa_chunk_global."""
 
 import math
 import torch
@@ -27,7 +27,7 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
                                  head_dim)
 
 
-class SnapKVCluster_gqa2():
+class SnapKVCluster_chunk_global():
 
     def __init__(self,
                  window_size=64,
@@ -69,7 +69,11 @@ class SnapKVCluster_gqa2():
     def update_kv(self, key_states, query_states, value_states, attention_mask,
                   num_key_value_groups):
         """
-        Update KV cache using chunk-based group-wise selection.
+        Update KV cache using global chunk-based selection.
+
+        Difference from snapkv_gqa2:
+        - All KV head groups share the same chunk indices (global selection)
+        - Ensures all groups have identical compressed sequence lengths
 
         Args:
             key_states: [bsz, num_key_value_heads, seq_len, head_dim]
@@ -144,8 +148,10 @@ class SnapKVCluster_gqa2():
 
         if pad_len > 0:
             # Pad with very small values (won't be selected)
+            # Use torch.finfo to get the minimum value for the dtype (FP16-safe)
+            min_value = torch.finfo(attn_weights_sum.dtype).min
             padding = torch.full((bsz, num_key_value_heads, pad_len),
-                               -1e9,
+                               min_value,
                                dtype=attn_weights_sum.dtype,
                                device=attn_weights_sum.device)
             attn_weights_padded = torch.cat([attn_weights_sum, padding], dim=-1)
@@ -158,74 +164,64 @@ class SnapKVCluster_gqa2():
         # 计算每个 chunk 的重要性分数（chunk 内所有 tokens 的注意力分数之和）
         chunk_importance = attn_weights_chunks.sum(dim=-1)  # [bsz, num_key_value_heads, num_chunks]
 
+        # === GLOBAL CHUNK SELECTION: 聚合所有 groups 的 chunk importance ===
+        # 对所有 KV head groups 求和，得到全局 chunk importance
+        chunk_importance_global = chunk_importance.sum(dim=1)  # [bsz, num_chunks]
+
         # 应用 pooling 进行平滑（可选）
         if self.pooling == 'avgpool':
-            chunk_importance = F.avg_pool1d(chunk_importance,
+            chunk_importance_global = F.avg_pool1d(chunk_importance_global.unsqueeze(1),
                                           kernel_size=min(self.kernel_size, num_chunks),
                                           padding=min(self.kernel_size, num_chunks) // 2,
-                                          stride=1)
+                                          stride=1).squeeze(1)
         elif self.pooling == 'maxpool':
-            chunk_importance = F.max_pool1d(chunk_importance,
+            chunk_importance_global = F.max_pool1d(chunk_importance_global.unsqueeze(1),
                                           kernel_size=min(self.kernel_size, num_chunks),
                                           padding=min(self.kernel_size, num_chunks) // 2,
-                                          stride=1)
+                                          stride=1).squeeze(1)
 
         # 计算需要保留的 chunks 数量
         num_tokens_to_keep = self.max_capacity_prompt - self.window_size
         num_chunks_to_keep = (num_tokens_to_keep + self.chunk_size - 1) // self.chunk_size
         num_chunks_to_keep = min(num_chunks_to_keep, num_chunks)  # 不能超过总 chunk 数
 
-        # 每个 group 独立选择 top-k chunks
-        # chunk_importance: [bsz, num_key_value_heads, num_chunks]
-        topk_chunk_indices = chunk_importance.topk(num_chunks_to_keep, dim=-1).indices
-        # topk_chunk_indices: [bsz, num_key_value_heads, num_chunks_to_keep]
+        # 全局选择 top-k chunks（所有 groups 共享）
+        # chunk_importance_global: [bsz, num_chunks]
+        topk_chunk_indices = chunk_importance_global.topk(num_chunks_to_keep, dim=-1).indices
+        # topk_chunk_indices: [bsz, num_chunks_to_keep]
 
         # === 根据选中的 chunks 提取对应的 tokens ===
-        # 为每个 group 生成 token-level 的 indices
+        # 所有 groups 使用相同的 chunk indices
         # 策略：对于每个选中的 chunk，提取该 chunk 的所有 tokens（最后一个 chunk 可能不满）
 
-        # 初始化结果列表
-        k_past_compress_list = []
-        v_past_compress_list = []
+        # 为每个 batch 生成 token indices
+        batch_token_indices = []
+        for b in range(bsz):
+            token_indices = []
+            for chunk_idx in topk_chunk_indices[b]:
+                chunk_idx = chunk_idx.item()
+                start_idx = chunk_idx * self.chunk_size
+                end_idx = min(start_idx + self.chunk_size, history_len)
+                token_indices.extend(range(start_idx, end_idx))
+            batch_token_indices.append(token_indices)
 
-        for group_idx in range(num_key_value_heads):
-            # 获取当前 group 选中的 chunk indices
-            selected_chunks = topk_chunk_indices[:, group_idx, :]  # [bsz, num_chunks_to_keep]
+        # 转换为 tensor，注意每个 batch 可能长度不同（因为最后一个 chunk）
+        # 为了统一处理，我们 pad 到相同长度
+        max_len = max(len(indices) for indices in batch_token_indices)
+        token_indices_tensor = torch.zeros((bsz, max_len), dtype=torch.long, device=key_states_gqa.device)
 
-            # 为每个 batch 生成 token indices
-            batch_token_indices = []
-            for b in range(bsz):
-                token_indices = []
-                for chunk_idx in selected_chunks[b]:
-                    chunk_idx = chunk_idx.item()
-                    start_idx = chunk_idx * self.chunk_size
-                    end_idx = min(start_idx + self.chunk_size, history_len)
-                    token_indices.extend(range(start_idx, end_idx))
-                batch_token_indices.append(token_indices)
+        for b in range(bsz):
+            indices = batch_token_indices[b]
+            token_indices_tensor[b, :len(indices)] = torch.tensor(indices, dtype=torch.long, device=key_states_gqa.device)
 
-            # 转换为 tensor，注意每个 batch 可能长度不同（因为最后一个 chunk）
-            # 为了统一处理，我们 pad 到相同长度
-            max_len = max(len(indices) for indices in batch_token_indices)
-            token_indices_tensor = torch.zeros((bsz, max_len), dtype=torch.long, device=key_states_gqa.device)
+        # 扩展到 num_key_value_heads 和 head_dim
+        # [bsz, max_len] -> [bsz, num_key_value_heads, max_len, head_dim]
+        token_indices_tensor = token_indices_tensor.unsqueeze(1).unsqueeze(-1).expand(bsz, num_key_value_heads, -1, head_dim)
 
-            for b in range(bsz):
-                indices = batch_token_indices[b]
-                token_indices_tensor[b, :len(indices)] = torch.tensor(indices, dtype=torch.long, device=key_states_gqa.device)
-
-            # 扩展到 head_dim
-            token_indices_tensor = token_indices_tensor.unsqueeze(1).unsqueeze(-1).expand(bsz, 1, -1, head_dim)
-            # [bsz, 1, max_len, head_dim]
-
-            # 从 key_states_gqa 和 value_states_gqa 中 gather
-            k_group = key_states_gqa[:, group_idx:group_idx+1, :-self.window_size, :].gather(dim=2, index=token_indices_tensor)
-            v_group = value_states_gqa[:, group_idx:group_idx+1, :-self.window_size, :].gather(dim=2, index=token_indices_tensor)
-
-            k_past_compress_list.append(k_group)
-            v_past_compress_list.append(v_group)
-
-        # 拼接所有 groups
-        k_past_compress = torch.cat(k_past_compress_list, dim=1)  # [bsz, num_key_value_heads, max_len, head_dim]
-        v_past_compress = torch.cat(v_past_compress_list, dim=1)
+        # 从 key_states_gqa 和 value_states_gqa 中 gather
+        # 所有 groups 使用相同的 indices
+        k_past_compress = key_states_gqa[:, :, :-self.window_size, :].gather(dim=2, index=token_indices_tensor)
+        v_past_compress = value_states_gqa[:, :, :-self.window_size, :].gather(dim=2, index=token_indices_tensor)
 
         # 添加最近的 window tokens
         k_cur = key_states_gqa[:, :, -self.window_size:, :]
@@ -235,12 +231,12 @@ class SnapKVCluster_gqa2():
         value_states_gqa = torch.cat([v_past_compress, v_cur], dim=2)
 
         # 返回 GQA 格式: [bsz, num_key_value_heads, compressed_seq_len, head_dim]
-        # 注意：不同 groups 使用不同的 token indices
+        # 注意：所有 groups 使用相同的 token indices
         return key_states_gqa, value_states_gqa
 
 
-def init_snapkv_gqa2(self):
-    """Initialize SnapKV GQA2 cluster."""
+def init_snapkv_gqa_chunk_global(self):
+    """Initialize SnapKV GQA Chunk Global cluster."""
     if not hasattr(self, 'kv_cluster'):
         if not hasattr(self.config, 'window_size'):
             self.config.window_size = 16
@@ -257,7 +253,7 @@ def init_snapkv_gqa2(self):
         if not hasattr(self.config, 'merge'):
             self.config.merge = None
 
-    self.kv_cluster = SnapKVCluster_gqa2(
+    self.kv_cluster = SnapKVCluster_chunk_global(
         window_size=self.config.window_size,
         max_capacity_prompt=self.config.max_capacity_prompt,
         chunk_size=self.config.chunk_size,

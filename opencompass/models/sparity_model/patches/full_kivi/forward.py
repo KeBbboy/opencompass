@@ -138,6 +138,21 @@ def llama_sdpa_attn_forward_FULL_KIVI(
     group_size = getattr(self.config, 'group_size', 32)
     residual_length = getattr(self.config, 'residual_length', 32)
 
+    # Debug: Print KIVI parameters once per model (using layer 0)
+    layer_idx = self.layer_idx if hasattr(self, 'layer_idx') else 0
+    if layer_idx == 0 and not hasattr(self, '_kivi_params_printed'):
+        print("\n" + "="*60)
+        print("[KIVI Forward] Reading parameters from self.config:")
+        print(f"  k_bits: {k_bits}")
+        print(f"  v_bits: {v_bits}")
+        print(f"  group_size: {group_size}")
+        print(f"  residual_length: {residual_length}")
+        print(f"  hasattr(self.config, 'k_bits'): {hasattr(self.config, 'k_bits')}")
+        if hasattr(self.config, 'k_bits'):
+            print(f"  self.config.k_bits: {self.config.k_bits}")
+        print("="*60 + "\n")
+        self._kivi_params_printed = True
+
     bsz, q_len, _ = hidden_states.size()
 
 

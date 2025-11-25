@@ -77,6 +77,16 @@ needlebench_datasets = sum((v for k, v in locals().items() if k.endswith('_datas
 
 # Read parameters from environment variables with defaults
 import os as _temp_os
+
+# Debug: Print environment variables when config is loaded
+print("\n" + "="*60)
+print("[Config File] Reading environment variables...")
+print(f"  KIVI_K_BITS env = {_temp_os.getenv('KIVI_K_BITS', 'NOT_SET')}")
+print(f"  KIVI_V_BITS env = {_temp_os.getenv('KIVI_V_BITS', 'NOT_SET')}")
+print(f"  KIVI_GROUP_SIZE env = {_temp_os.getenv('KIVI_GROUP_SIZE', 'NOT_SET')}")
+print(f"  KIVI_RESIDUAL_LENGTH env = {_temp_os.getenv('KIVI_RESIDUAL_LENGTH', 'NOT_SET')}")
+print("="*60 + "\n")
+
 SPARITY_METHOD = _temp_os.getenv('SPARITY_METHOD', 'snapkv_global')
 MAX_CAPACITY_PROMPT = int(_temp_os.getenv('MAX_CAPACITY_PROMPT', '512'))
 
@@ -85,6 +95,15 @@ KIVI_K_BITS = int(_temp_os.getenv('KIVI_K_BITS', '2'))
 KIVI_V_BITS = int(_temp_os.getenv('KIVI_V_BITS', '2'))
 KIVI_GROUP_SIZE = int(_temp_os.getenv('KIVI_GROUP_SIZE', '32'))
 KIVI_RESIDUAL_LENGTH = int(_temp_os.getenv('KIVI_RESIDUAL_LENGTH', '32'))
+
+print("\n" + "="*60)
+print("[Config File] Final values after reading:")
+print(f"  KIVI_K_BITS = {KIVI_K_BITS}")
+print(f"  KIVI_V_BITS = {KIVI_V_BITS}")
+print(f"  KIVI_GROUP_SIZE = {KIVI_GROUP_SIZE}")
+print(f"  KIVI_RESIDUAL_LENGTH = {KIVI_RESIDUAL_LENGTH}")
+print("="*60 + "\n")
+
 del _temp_os  
 
 

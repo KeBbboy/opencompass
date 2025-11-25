@@ -64,6 +64,7 @@ class QwenAttentionConvert(BaseModel):
             self.method = other_kwargs.pop('method')
             self.model = other_kwargs.pop('path', None)
             self.cache_kwargs = other_kwargs.pop('cache_kwargs', {})
+            self.kivi_kwargs = other_kwargs.pop('kivi_kwargs', {})  # Extract KIVI parameters
             self.past_key_values = None
         
 

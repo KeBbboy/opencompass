@@ -1,4 +1,7 @@
-"""Initialization utilities for snapkv_gqa2."""
+"""Initialization utilities for Min-Max-GQA-Chunk.
+
+Chunk-based compression using Max+min group max+min scoring.
+"""
 
 import math
 import torch
@@ -8,7 +11,6 @@ from typing import List, Optional, Tuple
 from transformers.cache_utils import Cache
 
 
-# Copied from transformers.models.llama.modeling_llama.repeat_kv
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     """This is the equivalent of torch.repeat_interleave(x, dim=1,
     repeats=n_rep).
@@ -27,7 +29,14 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
                                  head_dim)
 
 
-class SnapKVCluster_gqa2():
+class MinMaxKVCluster_chunk():
+    """
+    Max+min chunk-based KV compression for GQA.
+
+    Key differences from SnapKV-GQA2:
+    1. Uses max + min instead of sum for group aggregation (Max+min)
+    2. Uses max + min for chunk importance scoring
+    """
 
     def __init__(self,
                  window_size=64,
@@ -69,7 +78,7 @@ class SnapKVCluster_gqa2():
     def update_kv(self, key_states, query_states, value_states, attention_mask,
                   num_key_value_groups):
         """
-        Update KV cache using chunk-based group-wise selection.
+        Update KV cache using Max+min chunk-based group-wise selection.
 
         Args:
             key_states: [bsz, num_key_value_heads, seq_len, head_dim]
@@ -127,12 +136,14 @@ class SnapKVCluster_gqa2():
         attn_weights_sum = attn_weights[:, :, -self.window_size:, :-self.window_size].sum(dim=-2)
         # attn_weights_sum: [bsz, num_heads, history_len]
 
-        # === GROUP-WISE 处理：按 GQA groups 分组聚合 ===
+        # === 组内 max+min：保留不同 head 的贡献差异 ===
         # 将 num_heads 维度 reshape 成 [num_key_value_heads, num_key_value_groups]
-        # 然后在每个 group 内求和
         attn_weights_sum = attn_weights_sum.view(bsz, num_key_value_heads, num_key_value_groups, history_len)
-        # 在 group 内求和（对于 top-k 选择，求和和求平均效果相同）
-        attn_weights_sum = attn_weights_sum.sum(dim=2)  # [bsz, num_key_value_heads, history_len]
+
+        # 组内 max+min（可以看出不同 head 的贡献不同）
+        group_max = attn_weights_sum.max(dim=2)[0]  # [bsz, num_key_value_heads, history_len]
+        group_min = attn_weights_sum.min(dim=2)[0]  # [bsz, num_key_value_heads, history_len]
+        attn_weights_group = group_max + group_min  # [bsz, num_key_value_heads, history_len]
 
         # === CHUNK-BASED 选择 ===
         # 将历史序列划分为 chunks
@@ -144,18 +155,21 @@ class SnapKVCluster_gqa2():
 
         if pad_len > 0:
             # Pad with very small values (won't be selected)
+            # Use torch.finfo to get the minimum value for the dtype (FP16-safe)
+            min_value = torch.finfo(attn_weights_group.dtype).min
             padding = torch.full((bsz, num_key_value_heads, pad_len),
-                               -1e9,
-                               dtype=attn_weights_sum.dtype,
-                               device=attn_weights_sum.device)
-            attn_weights_padded = torch.cat([attn_weights_sum, padding], dim=-1)
+                               min_value,
+                               dtype=attn_weights_group.dtype,
+                               device=attn_weights_group.device)
+            attn_weights_padded = torch.cat([attn_weights_group, padding], dim=-1)
         else:
-            attn_weights_padded = attn_weights_sum
+            attn_weights_padded = attn_weights_group
 
         # Reshape 成 chunks: [bsz, num_key_value_heads, num_chunks, chunk_size]
         attn_weights_chunks = attn_weights_padded.view(bsz, num_key_value_heads, num_chunks, self.chunk_size)
 
-        # 计算每个 chunk 的重要性分数（chunk 内所有 tokens 的注意力分数之和）
+        # Chunk scoring: chunk 内直接 sum
+        # 计算每个 chunk 内所有 token scores 的和
         chunk_importance = attn_weights_chunks.sum(dim=-1)  # [bsz, num_key_value_heads, num_chunks]
 
         # 应用 pooling 进行平滑（可选）
@@ -184,15 +198,12 @@ class SnapKVCluster_gqa2():
         # 为每个 group 生成 token-level 的 indices
         # 策略：对于每个选中的 chunk，提取该 chunk 的所有 tokens（最后一个 chunk 可能不满）
 
-        # 初始化结果列表
-        k_past_compress_list = []
-        v_past_compress_list = []
+        # 第一步：收集所有 groups 的 token indices，并计算全局 max_len
+        all_batch_token_indices = []  # [num_key_value_heads][bsz][variable_length]
 
         for group_idx in range(num_key_value_heads):
-            # 获取当前 group 选中的 chunk indices
             selected_chunks = topk_chunk_indices[:, group_idx, :]  # [bsz, num_chunks_to_keep]
 
-            # 为每个 batch 生成 token indices
             batch_token_indices = []
             for b in range(bsz):
                 token_indices = []
@@ -203,9 +214,21 @@ class SnapKVCluster_gqa2():
                     token_indices.extend(range(start_idx, end_idx))
                 batch_token_indices.append(token_indices)
 
-            # 转换为 tensor，注意每个 batch 可能长度不同（因为最后一个 chunk）
-            # 为了统一处理，我们 pad 到相同长度
-            max_len = max(len(indices) for indices in batch_token_indices)
+            all_batch_token_indices.append(batch_token_indices)
+
+        # 计算全局 max_len（所有 groups 和所有 batches 中的最大值）
+        max_len = max(
+            len(indices)
+            for group_indices in all_batch_token_indices
+            for indices in group_indices
+        )
+
+        # 第二步：使用统一的 max_len 进行 padding 和 gather
+        k_past_compress_list = []
+        v_past_compress_list = []
+
+        for group_idx in range(num_key_value_heads):
+            batch_token_indices = all_batch_token_indices[group_idx]
             token_indices_tensor = torch.zeros((bsz, max_len), dtype=torch.long, device=key_states_gqa.device)
 
             for b in range(bsz):
@@ -239,8 +262,8 @@ class SnapKVCluster_gqa2():
         return key_states_gqa, value_states_gqa
 
 
-def init_snapkv_gqa2(self):
-    """Initialize SnapKV GQA2 cluster."""
+def init_min_max_gqa_chunk(self):
+    """Initialize Min-Max-GQA-Chunk cluster."""
     if not hasattr(self, 'kv_cluster'):
         if not hasattr(self.config, 'window_size'):
             self.config.window_size = 16
@@ -257,7 +280,7 @@ def init_snapkv_gqa2(self):
         if not hasattr(self.config, 'merge'):
             self.config.merge = None
 
-    self.kv_cluster = SnapKVCluster_gqa2(
+    self.kv_cluster = MinMaxKVCluster_chunk(
         window_size=self.config.window_size,
         max_capacity_prompt=self.config.max_capacity_prompt,
         chunk_size=self.config.chunk_size,
