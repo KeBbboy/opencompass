@@ -1,4 +1,4 @@
-"""Initialization utilities for snapkv_gqa."""
+"""Initialization utilities for sum_gqa."""
 
 import math
 import torch
@@ -104,11 +104,7 @@ class SnapKVCluster_gqa():
                 attn_weights_sum = attn_weights[:, :, -self.window_size:, :-self.
                                                 window_size].sum(dim=-2)
 
-                # 将 attention weights 从 MHA 格式聚合回 GQA 格式
-                # [bsz, num_heads, seq_len] -> [bsz, num_key_value_heads, seq_len]
-                attn_weights_sum = attn_weights_sum.view(bsz, num_key_value_heads, num_key_value_groups, -1)
-                attn_weights_sum = attn_weights_sum.mean(dim=2)  # 对每组的多个 query head 求平均
-
+                # 先 Pooling 平滑（在 MHA 格式上，每个 Q head 独立平滑）
                 if self.pooling == 'avgpool':
                     attn_cache = F.avg_pool1d(attn_weights_sum,
                                             kernel_size=self.kernel_size,
@@ -121,6 +117,11 @@ class SnapKVCluster_gqa():
                                             stride=1)
                 else:
                     raise ValueError('Pooling method not supported')
+
+                # 再将 attention weights 从 MHA 格式聚合回 GQA 格式
+                # [bsz, num_heads, seq_len] -> [bsz, num_key_value_heads, seq_len]
+                attn_cache = attn_cache.view(bsz, num_key_value_heads, num_key_value_groups, -1)
+                attn_cache = attn_cache.mean(dim=2)  # 对每组的多个 query head 求平均
 
                 # 基于 GQA 格式选择 top-k indices
                 indices = attn_cache.topk(self.max_capacity_prompt -
@@ -151,7 +152,7 @@ class SnapKVCluster_gqa():
 
 
 
-def init_snapkv_gqa(self):
+def init_sum_gqa(self):
     if not hasattr(self, 'kv_cluster'):
         if not hasattr(self.config, 'window_size'):
             self.config.window_size = 16

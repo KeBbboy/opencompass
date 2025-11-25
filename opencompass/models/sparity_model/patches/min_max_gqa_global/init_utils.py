@@ -131,30 +131,30 @@ class MinMaxKVCluster_global(nn.Module):
         # [bsz, num_q_heads, historical_len]
         attn_weights_sum = attn_weights[:, :, -self.window_size:, :-self.window_size].sum(dim=-2)
 
+        # Apply pooling first (smooth each Q head independently)
+        if self.pooling == 'avgpool':
+            import torch.nn.functional as F
+            attn_weights_sum = F.avg_pool1d(
+                attn_weights_sum,
+                kernel_size=self.kernel_size,
+                padding=self.kernel_size // 2,
+                stride=1
+            )
+        elif self.pooling == 'maxpool':
+            import torch.nn.functional as F
+            attn_weights_sum = F.max_pool1d(
+                attn_weights_sum,
+                kernel_size=self.kernel_size,
+                padding=self.kernel_size // 2,
+                stride=1
+            )
+
         # === 直接对所有 Q heads 计算 max+min（不分组）===
         # attn_weights_sum: [bsz, num_q_heads, historical_len]
-        # 对于每个 token，在所有 Q heads 中取 max 和 min
+        # 对于每个 token，在所有 Q heads 中取 max 和 min (based on smoothed scores)
         global_max_scores = attn_weights_sum.max(dim=1)[0]  # [bsz, historical_len]
         global_min_scores = attn_weights_sum.min(dim=1)[0]  # [bsz, historical_len]
         min_max_scores_global = global_max_scores + global_min_scores  # [bsz, historical_len]
-
-        # Apply pooling (optional smoothing) on global scores
-        if self.pooling == 'avgpool':
-            import torch.nn.functional as F
-            min_max_scores_global = F.avg_pool1d(
-                min_max_scores_global.unsqueeze(1),
-                kernel_size=self.kernel_size,
-                padding=self.kernel_size // 2,
-                stride=1
-            ).squeeze(1)
-        elif self.pooling == 'maxpool':
-            import torch.nn.functional as F
-            min_max_scores_global = F.max_pool1d(
-                min_max_scores_global.unsqueeze(1),
-                kernel_size=self.kernel_size,
-                padding=self.kernel_size // 2,
-                stride=1
-            ).squeeze(1)
 
         # Step 2: Select top-k from historical tokens (GLOBALLY)
         num_select_from_history = self.max_capacity_prompt - self.window_size

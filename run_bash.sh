@@ -12,29 +12,31 @@ CONFIG_FILE="opencompass/configs/sparity_config/run_Longbench.py"
 METHODS=(
     # "full"
     "min_max_gqa"
-    # "min_max_gqa_chunk"
-    # "min_max_gqa_chunk_global"
-    # "min_max_gqa_global"
-    # "pyramidkv"
-    # "pyramidkv_gqa"
-    # "snapkv"
-    # "snapkv_gqa_chunk_global"
-    # "snapkv_gqa"
-    # "snapkv_gqa2"
-    # "snapkv_gqa3"
+    "min_max_gqa_chunk"
+    "min_max_gqa_chunk_global"
+    "min_max_gqa_global"
+    "sum_gqa"
+    "sum_gqa_global"
+    "sum_gqa_chunk"
+    "sum_gqa_chunk_global"
+
     # "windowkv"
     # "windowkv_gqa"
+
+    
+    # "pyramidkv"
+    # "pyramidkv_gqa"
 )
 
 # 定义要测试的 max_capacity_prompt 值
 CAPACITIES=(
-    # 8192
-    # 4096
-    # 2048
-    # 1024
+    8192
+    4096
+    2048
+    1024
     512
-    # 256
-    # 128
+    256
+    128
 )
 
 # 定义要测试的 torch_dtype 值

@@ -135,7 +135,8 @@ models = [
                 # common parameters
                 window_size=64,
                 max_capacity_prompt=MAX_CAPACITY_PROMPT,
-                chunk_length = 8
+                chunk_length = 8,
+                topk_heads=2,  # 在这里设置 k 值
                 # NOTE: For ChunkKV method, ensure (max_capacity_prompt - window_size) % chunk_length == 0
                 # Current: (512 - 64) % 8 = 448 % 8 = 0 ✓
         ),

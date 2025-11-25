@@ -136,6 +136,24 @@ class MinMaxKVCluster_chunk():
         attn_weights_sum = attn_weights[:, :, -self.window_size:, :-self.window_size].sum(dim=-2)
         # attn_weights_sum: [bsz, num_heads, history_len]
 
+        # 先 Pooling 平滑（在 MHA 格式上，每个 Q head 独立平滑）
+        if self.pooling == 'avgpool':
+            import torch.nn.functional as F
+            attn_weights_sum = F.avg_pool1d(
+                attn_weights_sum,
+                kernel_size=self.kernel_size,
+                padding=self.kernel_size // 2,
+                stride=1
+            )
+        elif self.pooling == 'maxpool':
+            import torch.nn.functional as F
+            attn_weights_sum = F.max_pool1d(
+                attn_weights_sum,
+                kernel_size=self.kernel_size,
+                padding=self.kernel_size // 2,
+                stride=1
+            )
+
         # === 组内 max+min：保留不同 head 的贡献差异 ===
         # 将 num_heads 维度 reshape 成 [num_key_value_heads, num_key_value_groups]
         attn_weights_sum = attn_weights_sum.view(bsz, num_key_value_heads, num_key_value_groups, history_len)
@@ -171,18 +189,6 @@ class MinMaxKVCluster_chunk():
         # Chunk scoring: chunk 内直接 sum
         # 计算每个 chunk 内所有 token scores 的和
         chunk_importance = attn_weights_chunks.sum(dim=-1)  # [bsz, num_key_value_heads, num_chunks]
-
-        # 应用 pooling 进行平滑（可选）
-        if self.pooling == 'avgpool':
-            chunk_importance = F.avg_pool1d(chunk_importance,
-                                          kernel_size=min(self.kernel_size, num_chunks),
-                                          padding=min(self.kernel_size, num_chunks) // 2,
-                                          stride=1)
-        elif self.pooling == 'maxpool':
-            chunk_importance = F.max_pool1d(chunk_importance,
-                                          kernel_size=min(self.kernel_size, num_chunks),
-                                          padding=min(self.kernel_size, num_chunks) // 2,
-                                          stride=1)
 
         # 计算需要保留的 chunks 数量
         num_tokens_to_keep = self.max_capacity_prompt - self.window_size

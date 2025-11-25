@@ -127,35 +127,35 @@ class MinMaxKVCluster(nn.Module):
         # [bsz, num_q_heads, historical_len]
         attn_weights_sum = attn_weights[:, :, -self.window_size:, :-self.window_size].sum(dim=-2)
 
-        # Aggregate from MHA to GQA format
-        # [bsz, num_q_heads, historical_len] -> [bsz, num_kv_heads, num_key_value_groups, historical_len]
-        attn_weights_sum = attn_weights_sum.view(
-            bsz, num_kv_heads, num_key_value_groups, historical_len
-        )
-
-        # Max+min scoring: max + min across group
-        # [bsz, num_kv_heads, historical_len]
-        group_max_scores = attn_weights_sum.max(dim=2)[0]  # max over Q heads in group
-        group_min_scores = attn_weights_sum.min(dim=2)[0]  # min over Q heads in group
-        min_max_scores = group_max_scores + group_min_scores
-
-        # Apply pooling (optional smoothing)
+        # Apply pooling first (smooth each Q head independently)
         if self.pooling == 'avgpool':
             import torch.nn.functional as F
-            min_max_scores = F.avg_pool1d(
-                min_max_scores,
+            attn_weights_sum = F.avg_pool1d(
+                attn_weights_sum,
                 kernel_size=self.kernel_size,
                 padding=self.kernel_size // 2,
                 stride=1
             )
         elif self.pooling == 'maxpool':
             import torch.nn.functional as F
-            min_max_scores = F.max_pool1d(
-                min_max_scores,
+            attn_weights_sum = F.max_pool1d(
+                attn_weights_sum,
                 kernel_size=self.kernel_size,
                 padding=self.kernel_size // 2,
                 stride=1
             )
+
+        # Aggregate from MHA to GQA format (after pooling)
+        # [bsz, num_q_heads, historical_len] -> [bsz, num_kv_heads, num_key_value_groups, historical_len]
+        attn_weights_sum = attn_weights_sum.view(
+            bsz, num_kv_heads, num_key_value_groups, historical_len
+        )
+
+        # Max+min scoring: max + min across group (based on smoothed scores)
+        # [bsz, num_kv_heads, historical_len]
+        group_max_scores = attn_weights_sum.max(dim=2)[0]  # max over Q heads in group
+        group_min_scores = attn_weights_sum.min(dim=2)[0]  # min over Q heads in group
+        min_max_scores = group_max_scores + group_min_scores
 
         # Step 2: Select top-k from historical tokens
         num_select_from_history = self.max_capacity_prompt - self.window_size

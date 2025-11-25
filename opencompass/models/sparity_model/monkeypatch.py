@@ -20,9 +20,9 @@ from .patches import (
     apply_full_int8,
     apply_full_KIVI,
     apply_pyramidkv_gqa,
-    apply_snapkv_gqa,
-    apply_snapkv_gqa2,
-    apply_snapkv_gqa3,
+    apply_sum_gqa,
+    apply_sum_gqa_chunk,
+    apply_sum_gqa_global,
     apply_windowkv,
     apply_windowkv_gqa,
     apply_chunkkv,
@@ -30,7 +30,8 @@ from .patches import (
     apply_min_max_gqa_global,
     apply_min_max_gqa_chunk,
     apply_min_max_gqa_chunk_global,
-    apply_snapkv_gqa_chunk_global,
+    apply_sum_gqa_chunk_global,
+    apply_topk_gqa,
 )
 from .patches.common import (
     load_model_with_fallback,
@@ -126,15 +127,16 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False): 
         'full_KIVI': apply_full_KIVI,
 
         'pyramidkv_gqa': apply_pyramidkv_gqa,
-        'snapkv_gqa': apply_snapkv_gqa,
-        'snapkv_gqa2': apply_snapkv_gqa2,
-        'snapkv_gqa3': apply_snapkv_gqa3,
+        'sum_gqa': apply_sum_gqa,
+        'sum_gqa_chunk': apply_sum_gqa_chunk,
+        'sum_gqa_global': apply_sum_gqa_global,
         'windowkv_gqa': apply_windowkv_gqa,
         'min_max_gqa': apply_min_max_gqa,
         'min_max_gqa_global': apply_min_max_gqa_global,
         'min_max_gqa_chunk': apply_min_max_gqa_chunk,
         'min_max_gqa_chunk_global': apply_min_max_gqa_chunk_global,
-        'snapkv_gqa_chunk_global': apply_snapkv_gqa_chunk_global,
+        'sum_gqa_chunk_global': apply_sum_gqa_chunk_global,
+        'topk_gqa': apply_topk_gqa,
     }
     
     if method in method_handlers:

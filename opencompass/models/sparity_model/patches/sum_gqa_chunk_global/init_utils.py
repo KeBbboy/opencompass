@@ -1,4 +1,4 @@
-"""Initialization utilities for snapkv_gqa_chunk_global."""
+"""Initialization utilities for sum_gqa_chunk_global."""
 
 import math
 import torch
@@ -235,7 +235,7 @@ class SnapKVCluster_chunk_global():
         return key_states_gqa, value_states_gqa
 
 
-def init_snapkv_gqa_chunk_global(self):
+def init_sum_gqa_chunk_global(self):
     """Initialize SnapKV GQA Chunk Global cluster."""
     if not hasattr(self, 'kv_cluster'):
         if not hasattr(self.config, 'window_size'):

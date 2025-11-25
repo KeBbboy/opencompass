@@ -18,12 +18,12 @@ from transformers.utils import logging
 logger = logging.get_logger(__name__)
 
 # Import local init function
-from .init_utils import init_snapkv_gqa
+from .init_utils import init_sum_gqa_chunk_global
 from ..utils.kv_utils import estimate_kv_memory
 
 
 
-def llama_sdpa_attn_forward_SnapKV_gqa(
+def llama_sdpa_attn_forward_sum_gqa_chunk_global(
     self,
     hidden_states: torch.Tensor,
     attention_mask: Optional[torch.Tensor] = None,
@@ -52,8 +52,8 @@ def llama_sdpa_attn_forward_SnapKV_gqa(
             cache_position=cache_position,
             position_embeddings=position_embeddings,
         )
-    
-    init_snapkv_gqa(self)
+
+    init_sum_gqa_chunk_global(self)
     bsz, q_len, _ = hidden_states.size()
 
     query_states = self.q_proj(hidden_states)
@@ -83,7 +83,7 @@ def llama_sdpa_attn_forward_SnapKV_gqa(
 
     query_states, key_states = apply_rotary_pos_emb(query_states, key_states,
                                                     cos, sin)
-    
+
 
     if past_key_value is not None:
         # sin and cos are specific to RoPE models; cache_position needed for the static cache
@@ -97,11 +97,11 @@ def llama_sdpa_attn_forward_SnapKV_gqa(
                 key_states, query_states, value_states, attention_mask,
                 self.num_key_value_groups)
 
-            
+
             past_key_value.update(key_states_compress, value_states_compress,
                                   self.layer_idx, cache_kwargs)
-            
-            
+
+
             if self.layer_idx == 27:
                 # 获取 method 和 max_capacity_prompt 参数
                 method = getattr(self.config, 'method', 'unknown')
@@ -136,7 +136,7 @@ def llama_sdpa_attn_forward_SnapKV_gqa(
             for i, (k, v) in enumerate(zip(key_cache, value_cache)):
                 if i == 23:
                     print(f"[Layer {i}] key shape: {k.shape}, value shape: {v.shape}")
-                    
+
     key_states = repeat_kv(key_states, self.num_key_value_groups)
     value_states = repeat_kv(value_states, self.num_key_value_groups)
     causal_mask = attention_mask

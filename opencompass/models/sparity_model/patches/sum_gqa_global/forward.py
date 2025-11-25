@@ -18,7 +18,7 @@ from transformers.utils import logging
 logger = logging.get_logger(__name__)
 
 # Import local init function
-from .init_utils import init_snapkv_gqa3
+from .init_utils import init_sum_gqa_global
 from ..utils.kv_utils import estimate_kv_memory
 
 
@@ -53,7 +53,7 @@ def llama_sdpa_attn_forward_SnapKV_gqa3(
             position_embeddings=position_embeddings,
         )
 
-    init_snapkv_gqa3(self)
+    init_sum_gqa_global(self)
     bsz, q_len, _ = hidden_states.size()
 
     query_states = self.q_proj(hidden_states)

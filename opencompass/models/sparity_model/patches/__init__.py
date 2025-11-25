@@ -11,9 +11,9 @@ from .full import apply_full
 from .full_int8 import apply_full_int8
 from .full_kivi import apply_full_KIVI
 from .pyramidkv_gqa import apply_pyramidkv_gqa
-from .snapkv_gqa import apply_snapkv_gqa
-from .snapkv_gqa2 import apply_snapkv_gqa2
-from .snapkv_gqa3 import apply_snapkv_gqa3
+from .sum_gqa import apply_sum_gqa
+from .sum_gqa_chunk import apply_sum_gqa_chunk
+from .sum_gqa_global import apply_sum_gqa_global
 from .windowkv import apply_windowkv
 from .windowkv_gqa import apply_windowkv_gqa
 from .chunkkv import apply_chunkkv
@@ -21,7 +21,8 @@ from .min_max_gqa import apply_min_max_gqa
 from .min_max_gqa_global import apply_min_max_gqa_global
 from .min_max_gqa_chunk import apply_min_max_gqa_chunk
 from .min_max_gqa_chunk_global import apply_min_max_gqa_chunk_global
-from .snapkv_gqa_chunk_global import apply_snapkv_gqa_chunk_global
+from .sum_gqa_chunk_global import apply_sum_gqa_chunk_global
+from .topk_gqa import apply_topk_gqa
 
 __all__ = [
     'apply_pyramidkv',
@@ -35,9 +36,9 @@ __all__ = [
     'apply_full_int8',
     'apply_full_KIVI',
     'apply_pyramidkv_gqa',
-    'apply_snapkv_gqa',
-    'apply_snapkv_gqa2',
-    'apply_snapkv_gqa3',
+    'apply_sum_gqa',
+    'apply_sum_gqa_chunk',
+    'apply_sum_gqa_global',
     'apply_windowkv',
     'apply_windowkv_gqa',
     'apply_chunkkv',
@@ -45,5 +46,6 @@ __all__ = [
     'apply_min_max_gqa_global',
     'apply_min_max_gqa_chunk',
     'apply_min_max_gqa_chunk_global',
-    'apply_snapkv_gqa_chunk_global',
+    'apply_sum_gqa_chunk_global',
+    'apply_topk_gqa',
 ]
