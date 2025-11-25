@@ -32,6 +32,8 @@ from .patches import (
     apply_min_max_gqa_chunk_global,
     apply_sum_gqa_chunk_global,
     apply_topk_gqa,
+    apply_topk_gqa_global,
+    apply_center_topk_gqa,
 )
 from .patches.common import (
     load_model_with_fallback,
@@ -137,6 +139,8 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False): 
         'min_max_gqa_chunk_global': apply_min_max_gqa_chunk_global,
         'sum_gqa_chunk_global': apply_sum_gqa_chunk_global,
         'topk_gqa': apply_topk_gqa,
+        'topk_gqa_global': apply_topk_gqa_global,
+        'center_topk_gqa': apply_center_topk_gqa,
     }
     
     if method in method_handlers:

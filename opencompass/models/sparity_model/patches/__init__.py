@@ -23,6 +23,8 @@ from .min_max_gqa_chunk import apply_min_max_gqa_chunk
 from .min_max_gqa_chunk_global import apply_min_max_gqa_chunk_global
 from .sum_gqa_chunk_global import apply_sum_gqa_chunk_global
 from .topk_gqa import apply_topk_gqa
+from .topk_gqa_global import apply_topk_gqa_global
+from .center_topk_gqa import apply_center_topk_gqa
 
 __all__ = [
     'apply_pyramidkv',
@@ -48,4 +50,6 @@ __all__ = [
     'apply_min_max_gqa_chunk_global',
     'apply_sum_gqa_chunk_global',
     'apply_topk_gqa',
+    'apply_topk_gqa_global',
+    'apply_center_topk_gqa',
 ]

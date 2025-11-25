@@ -1,6 +1,9 @@
-"""Initialization utilities for TopK-GQA.
+"""Initialization utilities for Center-TopK-GQA.
 
-TopK-based KV compression: select top-k Q heads within each group and sum their scores.
+Center-based KV compression: Each KV head group independently:
+1. Computes centroid (center) using max and min
+2. Calculates distance from each token to the centroid
+3. Selects top-k tokens that are farthest from the centroid (most informative)
 """
 
 import math
@@ -29,15 +32,18 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
                                  head_dim)
 
 
-class TopKKVCluster_gqa():
+class CenterTopKKVCluster_gqa():
     """
-    TopK-based KV compression for GQA.
+    Center-based TopK KV compression for GQA.
 
-    Key difference from SnapKV-GQA:
-    - SnapKV-GQA: mean over all Q heads in group
-    - TopK-GQA: select top-k Q heads in group, then sum their scores
+    Algorithm:
+    1. For each KV head group, compute centroid: center = (max + min) / 2
+    2. Calculate distance from each token to the centroid
+    3. Select top-k tokens with largest distance (farthest from center)
+    4. Each KV head group independently selects different tokens
 
-    This allows focusing on the most important Q heads within each group.
+    Key insight: Tokens far from centroid contain more unique information,
+    while tokens near centroid are redundant and can be compressed.
     """
 
     def __init__(self,
@@ -48,7 +54,7 @@ class TopKKVCluster_gqa():
                  merge=None,
                  recent_size=32,
                  ratio=0.4,
-                 topk_heads=2):  # 新增参数：每组选取 top-k 个 Q heads
+                 distance_metric='l2'):
         self.window_size = window_size
         self.max_capacity_prompt = max_capacity_prompt
         self.ratio = ratio
@@ -58,7 +64,7 @@ class TopKKVCluster_gqa():
         self.merge = merge
         self.recent_size = recent_size
         self.ratio = ratio
-        self.topk_heads = topk_heads
+        self.distance_metric = distance_metric  # 'l2' or 'l1'
 
     def reset(self,
               window_size=64,
@@ -67,7 +73,7 @@ class TopKKVCluster_gqa():
               pooling='avgpool',
               ratio=0,
               merge=None,
-              topk_heads=2):
+              distance_metric='l2'):
         self.window_size = window_size
         self.max_capacity_prompt = max_capacity_prompt
         self.ratio = ratio
@@ -75,41 +81,31 @@ class TopKKVCluster_gqa():
         self.kernel_size = kernel_size
         self.pooling = pooling
         self.merge = merge
-        self.topk_heads = topk_heads
+        self.distance_metric = distance_metric
 
     def update_kv(self, key_states, query_states, value_states, attention_mask,
                   num_key_value_groups):
         """
-        Update KV cache using TopK-based group-wise selection.
+        Update KV cache using center-based token selection on attention scores.
 
-        Args:
-            key_states: [bsz, num_key_value_heads, seq_len, head_dim]
-            query_states: [bsz, num_heads, seq_len, head_dim]
-            value_states: [bsz, num_key_value_heads, seq_len, head_dim]
-            attention_mask: attention mask
-            num_key_value_groups: number of query heads per KV head (GQA ratio)
-
-        Returns:
-            Compressed key_states and value_states in GQA format
+        Similar to SnapKV but:
+        - SnapKV: directly uses pooled attention scores
+        - Center-TopK-GQA: computes centroid of attention scores per group,
+          then selects tokens based on distance from centroid
         """
-        # 保存原始的 GQA 格式的 key_states 和 value_states
-        key_states_gqa = key_states  # [bsz, num_key_value_heads, seq_len, head_dim]
-        value_states_gqa = value_states
-
+        # check if prefix phase
         assert key_states.shape[-2] == query_states.shape[-2]
         bsz, num_heads, q_len, head_dim = query_states.shape
-        bsz_k, num_key_value_heads, q_len_k, head_dim_k = key_states_gqa.shape
 
         if q_len < self.max_capacity_prompt:
-            return key_states_gqa, value_states_gqa
+            return key_states, value_states
         else:
-            # 临时扩展 key_states 用于计算 attention weights
-            key_states_expanded = repeat_kv(key_states_gqa, num_key_value_groups)
-
+            # === 计算注意力权重（与 SnapKV 相同）===
             attn_weights = torch.matmul(
                 query_states[..., -self.window_size:, :],
-                key_states_expanded.transpose(2, 3)) / math.sqrt(head_dim)
+                key_states.transpose(2, 3)) / math.sqrt(head_dim)
 
+            # Causal mask
             mask = torch.full((self.window_size, self.window_size),
                             torch.finfo(attn_weights.dtype).min,
                             device=attn_weights.device)
@@ -127,13 +123,11 @@ class TopKKVCluster_gqa():
                                                 dtype=torch.float32).to(
                                                     query_states.dtype)
 
-            # === 新策略：先 Pool，再组内 TopK Max，最后用 Max 和排序 ===
-
-            # 1. 计算历史 tokens 的注意力分数
+            # 聚合注意力分数（与 SnapKV 相同）
             attn_weights_sum = attn_weights[:, :, -self.window_size:, :-self.window_size].sum(dim=-2)
             # attn_weights_sum: [bsz, num_heads, history_len]
 
-            # 2. Pool：在 token 维度上进行平滑
+            # Pool 平滑（与 SnapKV 相同）
             if self.pooling == 'avgpool':
                 attn_weights_pooled = F.avg_pool1d(attn_weights_sum,
                                                   kernel_size=self.kernel_size,
@@ -148,49 +142,45 @@ class TopKKVCluster_gqa():
                 raise ValueError('Pooling method not supported')
             # attn_weights_pooled: [bsz, num_heads, history_len]
 
-            # 3. 将 attention weights 从 MHA 格式转换为 GQA 格式
+            # === Center-based 策略：基于 pooled 注意力分数的质心 ===
+
+            # 1. 计算每个 head 组的质心（注意力分数的中心）
+            # 将 MHA 转换为 GQA 格式
             history_len = attn_weights_pooled.shape[-1]
-            # [bsz, num_heads, history_len] -> [bsz, num_key_value_heads, num_key_value_groups, history_len]
+            num_key_value_heads = key_states.shape[1]
             attn_weights_gqa = attn_weights_pooled.view(bsz, num_key_value_heads, num_key_value_groups, history_len)
+            # [bsz, num_kv_heads, num_kv_groups, history_len]
 
-            # 4. 对每个 token，在组内选择 top-k 个最大的 Q head 分数
-            # 确保 topk_heads 不超过 num_key_value_groups
-            k = min(self.topk_heads, num_key_value_groups)
+            # 计算每个 KV head 组的质心（每个 token 在组内的平均注意力）
+            centers = attn_weights_gqa.mean(dim=2, keepdim=True)
+            # centers: [bsz, num_kv_heads, 1, history_len]
+            # 质心 = 组内所有 Q heads 对每个 token 的平均注意力
 
-            # attn_weights_gqa: [bsz, num_key_value_heads, num_key_value_groups, history_len]
-            # topk 在 dim=2 (num_key_value_groups) 上操作，对每个 token 独立选择 top-k heads
-            topk_scores, _ = torch.topk(attn_weights_gqa, k=k, dim=2, largest=True)
-            # topk_scores: [bsz, num_key_value_heads, k, history_len]
-            # 含义：对每个 token，保留组内 top-k 个 Q heads 的最大注意力分数
+            # 2. 计算每个 token 到质心的距离
+            # 距离 = 组内各 Q heads 的注意力分数与质心的偏差
+            token_dists = (attn_weights_gqa - centers).abs().sum(dim=2)
+            # token_dists: [bsz, num_kv_heads, history_len]
+            # 距离越大 = 该 token 在组内引起的注意力"分歧"越大 = 越重要
 
-            # 5. 对 top-k 个 max 值求和，得到每个 token 的最终代表分数
-            # 这个和决定了 token 在组内的重要性排序
-            attn_cache = topk_scores.sum(dim=2)
-            # attn_cache: [bsz, num_key_value_heads, history_len]
-            # 含义：每个 token 的分数 = 组内 top-k 个最关注它的 Q heads 的分数之和
-
-            # 6. 基于 GQA 格式选择 top-k indices
-            indices = attn_cache.topk(self.max_capacity_prompt -
-                                    self.window_size,
-                                    dim=-1).indices
+            # 3. 选择距离质心最远的 tokens（注意力分歧最大）
+            indices = token_dists.topk(self.max_capacity_prompt - self.window_size,
+                                      dim=-1, largest=True).indices
             indices = indices.unsqueeze(-1).expand(-1, -1, -1, head_dim)
 
-            # 对原始 GQA 格式的 key_states 和 value_states 应用 indices
-            k_past_compress = key_states_gqa[:, :, :-self.window_size, :].gather(
+            # 4. Gather 压缩的 KV
+            k_past_compress = key_states[:, :, :-self.window_size, :].gather(
                 dim=2, index=indices)
-            v_past_compress = value_states_gqa[:, :, :-self.window_size, :].gather(
+            v_past_compress = value_states[:, :, :-self.window_size, :].gather(
                 dim=2, index=indices)
-            k_cur = key_states_gqa[:, :, -self.window_size:, :]
-            v_cur = value_states_gqa[:, :, -self.window_size:, :]
-            key_states_gqa = torch.cat([k_past_compress, k_cur], dim=2)
-            value_states_gqa = torch.cat([v_past_compress, v_cur], dim=2)
-
-            # 返回 GQA 格式: [bsz, num_key_value_heads, compressed_seq_len, head_dim]
-            return key_states_gqa, value_states_gqa
+            k_cur = key_states[:, :, -self.window_size:, :]
+            v_cur = value_states[:, :, -self.window_size:, :]
+            key_states = torch.cat([k_past_compress, k_cur], dim=2)
+            value_states = torch.cat([v_past_compress, v_cur], dim=2)
+            return key_states, value_states
 
 
-def init_topk_gqa(self):
-    """Initialize TopK-GQA cluster."""
+def init_center_topk_gqa(self):
+    """Initialize Center-TopK-GQA cluster."""
     if not hasattr(self, 'kv_cluster'):
         if not hasattr(self.config, 'window_size'):
             self.config.window_size = 16
@@ -204,15 +194,15 @@ def init_topk_gqa(self):
             self.config.pooling = 'maxpool'
         if not hasattr(self.config, 'merge'):
             self.config.merge = None
-        if not hasattr(self.config, 'topk_heads'):
-            self.config.topk_heads = 2  # 默认选取 top-2 个 Q heads
+        if not hasattr(self.config, 'distance_metric'):
+            self.config.distance_metric = 'l2'  # 默认使用 L2 距离
 
-    self.kv_cluster = TopKKVCluster_gqa(
+    self.kv_cluster = CenterTopKKVCluster_gqa(
         window_size=self.config.window_size,
         max_capacity_prompt=self.config.max_capacity_prompt,
         ratio=0.4,
         kernel_size=7,
         pooling=self.config.pooling,
         merge=self.config.merge,
-        topk_heads=self.config.topk_heads,
+        distance_metric=self.config.distance_metric,
     )

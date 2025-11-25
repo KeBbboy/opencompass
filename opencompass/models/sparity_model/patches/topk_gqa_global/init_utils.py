@@ -1,6 +1,7 @@
-"""Initialization utilities for TopK-GQA.
+"""Initialization utilities for TopK-GQA-Global.
 
-TopK-based KV compression: select top-k Q heads within each group and sum their scores.
+TopK-based KV compression: select top-k Q heads GLOBALLY across all KV head groups,
+then sum their scores. All KV heads share the same token indices.
 """
 
 import math
@@ -29,15 +30,21 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
                                  head_dim)
 
 
-class TopKKVCluster_gqa():
+class TopKKVCluster_gqa_global():
     """
-    TopK-based KV compression for GQA.
+    TopK-based KV compression for GQA with global token selection.
 
-    Key difference from SnapKV-GQA:
-    - SnapKV-GQA: mean over all Q heads in group
-    - TopK-GQA: select top-k Q heads in group, then sum their scores
+    Key difference from TopK-GQA:
+    - TopK-GQA: Each KV head group independently selects tokens
+    - TopK-GQA-Global: All KV heads share the same token indices (global selection)
 
-    This allows focusing on the most important Q heads within each group.
+    Algorithm:
+    1. Pool attention scores across token dimension
+    2. Reshape to GQA format
+    3. Select top-k Q heads for each token (per KV head group)
+    4. Sum across top-k heads for each KV head group
+    5. Average scores across all KV head groups
+    6. Select tokens based on global average score (same indices for all groups)
     """
 
     def __init__(self,
@@ -48,7 +55,7 @@ class TopKKVCluster_gqa():
                  merge=None,
                  recent_size=32,
                  ratio=0.4,
-                 topk_heads=2):  # 新增参数：每组选取 top-k 个 Q heads
+                 topk_heads=2):
         self.window_size = window_size
         self.max_capacity_prompt = max_capacity_prompt
         self.ratio = ratio
@@ -80,7 +87,7 @@ class TopKKVCluster_gqa():
     def update_kv(self, key_states, query_states, value_states, attention_mask,
                   num_key_value_groups):
         """
-        Update KV cache using TopK-based group-wise selection.
+        Update KV cache using TopK-based group-wise selection with GLOBAL token indices.
 
         Args:
             key_states: [bsz, num_key_value_heads, seq_len, head_dim]
@@ -91,9 +98,9 @@ class TopKKVCluster_gqa():
 
         Returns:
             Compressed key_states and value_states in GQA format
+            All KV head groups use the SAME token indices
         """
-        # 保存原始的 GQA 格式的 key_states 和 value_states
-        key_states_gqa = key_states  # [bsz, num_key_value_heads, seq_len, head_dim]
+        key_states_gqa = key_states
         value_states_gqa = value_states
 
         assert key_states.shape[-2] == query_states.shape[-2]
@@ -127,13 +134,13 @@ class TopKKVCluster_gqa():
                                                 dtype=torch.float32).to(
                                                     query_states.dtype)
 
-            # === 新策略：先 Pool，再组内 TopK Max，最后用 Max 和排序 ===
+            # === 全局策略：先 Pool，再组内 TopK，最后全局平均得到统一的 token 索引 ===
 
             # 1. 计算历史 tokens 的注意力分数
             attn_weights_sum = attn_weights[:, :, -self.window_size:, :-self.window_size].sum(dim=-2)
             # attn_weights_sum: [bsz, num_heads, history_len]
 
-            # 2. Pool：在 token 维度上进行平滑
+            # 2. 先 Pool：在每个 head 的 token 维度上进行平滑
             if self.pooling == 'avgpool':
                 attn_weights_pooled = F.avg_pool1d(attn_weights_sum,
                                                   kernel_size=self.kernel_size,
@@ -150,32 +157,38 @@ class TopKKVCluster_gqa():
 
             # 3. 将 attention weights 从 MHA 格式转换为 GQA 格式
             history_len = attn_weights_pooled.shape[-1]
-            # [bsz, num_heads, history_len] -> [bsz, num_key_value_heads, num_key_value_groups, history_len]
             attn_weights_gqa = attn_weights_pooled.view(bsz, num_key_value_heads, num_key_value_groups, history_len)
 
             # 4. 对每个 token，在组内选择 top-k 个最大的 Q head 分数
-            # 确保 topk_heads 不超过 num_key_value_groups
             k = min(self.topk_heads, num_key_value_groups)
-
-            # attn_weights_gqa: [bsz, num_key_value_heads, num_key_value_groups, history_len]
-            # topk 在 dim=2 (num_key_value_groups) 上操作，对每个 token 独立选择 top-k heads
             topk_scores, _ = torch.topk(attn_weights_gqa, k=k, dim=2, largest=True)
             # topk_scores: [bsz, num_key_value_heads, k, history_len]
-            # 含义：对每个 token，保留组内 top-k 个 Q heads 的最大注意力分数
 
-            # 5. 对 top-k 个 max 值求和，得到每个 token 的最终代表分数
-            # 这个和决定了 token 在组内的重要性排序
-            attn_cache = topk_scores.sum(dim=2)
-            # attn_cache: [bsz, num_key_value_heads, history_len]
-            # 含义：每个 token 的分数 = 组内 top-k 个最关注它的 Q heads 的分数之和
+            # 5. 对 top-k 个 max 值求和，得到每个 KV head 组对每个 token 的分数
+            attn_scores_per_group = topk_scores.sum(dim=2)
+            # attn_scores_per_group: [bsz, num_key_value_heads, history_len]
 
-            # 6. 基于 GQA 格式选择 top-k indices
-            indices = attn_cache.topk(self.max_capacity_prompt -
-                                    self.window_size,
-                                    dim=-1).indices
+            # === 关键：全局平均，所有 KV heads 共享相同的 token 索引 ===
+            # 6. 对所有 KV head 组的分数求平均，得到全局分数
+            attn_cache_global = attn_scores_per_group.mean(dim=1, keepdim=True)
+            # attn_cache_global: [bsz, 1, history_len]
+
+            # 7. 基于全局分数选择 top-k token indices（所有组共享）
+            indices_global = attn_cache_global.topk(
+                self.max_capacity_prompt - self.window_size,
+                dim=-1
+            ).indices
+            # indices_global: [bsz, 1, num_selected_tokens]
+
+            # 扩展 indices 到所有 KV heads（广播）
+            indices = indices_global.expand(bsz, num_key_value_heads, -1)
+            # indices: [bsz, num_key_value_heads, num_selected_tokens]
+            # 注意：所有 KV heads 的 indices 是相同的！
+
             indices = indices.unsqueeze(-1).expand(-1, -1, -1, head_dim)
+            # indices: [bsz, num_key_value_heads, num_selected_tokens, head_dim]
 
-            # 对原始 GQA 格式的 key_states 和 value_states 应用 indices
+            # 对原始 GQA 格式的 key_states 和 value_states 应用相同的 indices
             k_past_compress = key_states_gqa[:, :, :-self.window_size, :].gather(
                 dim=2, index=indices)
             v_past_compress = value_states_gqa[:, :, :-self.window_size, :].gather(
@@ -186,11 +199,12 @@ class TopKKVCluster_gqa():
             value_states_gqa = torch.cat([v_past_compress, v_cur], dim=2)
 
             # 返回 GQA 格式: [bsz, num_key_value_heads, compressed_seq_len, head_dim]
+            # 所有 KV heads 保留相同的 tokens
             return key_states_gqa, value_states_gqa
 
 
-def init_topk_gqa(self):
-    """Initialize TopK-GQA cluster."""
+def init_topk_gqa_global(self):
+    """Initialize TopK-GQA-Global cluster."""
     if not hasattr(self, 'kv_cluster'):
         if not hasattr(self.config, 'window_size'):
             self.config.window_size = 16
@@ -205,9 +219,9 @@ def init_topk_gqa(self):
         if not hasattr(self.config, 'merge'):
             self.config.merge = None
         if not hasattr(self.config, 'topk_heads'):
-            self.config.topk_heads = 2  # 默认选取 top-2 个 Q heads
+            self.config.topk_heads = 2
 
-    self.kv_cluster = TopKKVCluster_gqa(
+    self.kv_cluster = TopKKVCluster_gqa_global(
         window_size=self.config.window_size,
         max_capacity_prompt=self.config.max_capacity_prompt,
         ratio=0.4,
