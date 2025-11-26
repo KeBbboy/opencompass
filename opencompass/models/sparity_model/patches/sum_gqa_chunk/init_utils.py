@@ -144,8 +144,9 @@ class SnapKVCluster_gqa2():
 
         if pad_len > 0:
             # Pad with very small values (won't be selected)
+            # Use -1e4 instead of -1e9 to avoid overflow with float16/bfloat16
             padding = torch.full((bsz, num_key_value_heads, pad_len),
-                               -1e9,
+                               -1e4,
                                dtype=attn_weights_sum.dtype,
                                device=attn_weights_sum.device)
             attn_weights_padded = torch.cat([attn_weights_sum, padding], dim=-1)

@@ -30,9 +30,22 @@ def load_model_with_fallback(path, model_kwargs):
 
 
 def configure_basic_cache(model, cache_kwargs, method=None):
-    """Configure basic cache settings (window_size, max_capacity_prompt, and method)."""
-    model.config.window_size = cache_kwargs.window_size
-    model.config.max_capacity_prompt = cache_kwargs.max_capacity_prompt
+    """Configure cache settings from cache_kwargs dictionary.
+
+    This function automatically transfers all parameters from cache_kwargs
+    to model.config, enabling flexible configuration for different methods.
+
+    Args:
+        model: The model instance
+        cache_kwargs: Dictionary containing cache configuration parameters
+                     (e.g., window_size, max_capacity_prompt, topk_heads, chunk_length, etc.)
+        method: Optional method name to set in config
+    """
+    # Set all cache_kwargs parameters to model.config
+    # This allows any method to access its specific parameters
+    for key, value in cache_kwargs.items():
+        setattr(model.config, key, value)
+
     if method is not None:
         model.config.method = method
 

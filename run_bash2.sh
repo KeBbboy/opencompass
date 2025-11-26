@@ -10,9 +10,7 @@ CONFIG_FILE="opencompass/configs/sparity_config/run_Longbench.py"
 
 # 定义要测试的方法
 METHODS=(
-    # "full"
-    "topk_gqa"
-    # "topk_gqa_global"
+    "full"
     # "min_max_gqa"
     # "min_max_gqa_global"
     # "min_max_gqa_chunk"
@@ -36,8 +34,6 @@ CAPACITIES=(
     # 4096
     # 2048
     # 1024
-    512
-    256
     128
 )
 
