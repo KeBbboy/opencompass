@@ -136,9 +136,16 @@ models = [
                 window_size=64,
                 max_capacity_prompt=MAX_CAPACITY_PROMPT,
                 chunk_length = 8,
-                topk_heads=1,  # 在这里设置 k 值
+                topk_heads=2,  # 在这里设置 k 值
                 # NOTE: For ChunkKV method, ensure (max_capacity_prompt - window_size) % chunk_length == 0
                 # Current: (512 - 64) % 8 = 448 % 8 = 0 ✓
+
+                # Visualization parameters
+                save_indices=False,           # 启用索引保存
+                save_key_states=False,       # 启用key states保存
+                save_query_states=True,     # 启用query states保存（window部分）
+                visualize_layer=None,        # 保存所有层（0=只保存第0层）
+                max_samples_to_save=5,      # 保存前10个样本
         ),
         kivi_kwargs=dict(
             # KIVI-specific parameters (only used when method='full_KIVI')

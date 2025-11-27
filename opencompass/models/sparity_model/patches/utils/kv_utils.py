@@ -1,5 +1,6 @@
 import os
 import csv
+import json
 from datetime import datetime
 from typing import List, Optional, Tuple
 
@@ -166,6 +167,274 @@ def estimate_kivi_memory(past_key_value, k_bits, v_bits, group_size, residual_le
         writer.writerow(row)
 
     return total_memory_mb
+
+
+def save_topk_indices(indices, layer_idx, attn_weights_sum=None, method="snapkv", save_dir="kv_cache_logs", sample_id=0, capacity=None, run_timestamp=None, num_key_value_groups=None, dataset_name=None):
+    """
+    Save topk indices selected by KV compression algorithms.
+
+    Args:
+        indices: torch.Tensor, shape [bsz, num_heads, topk, head_dim] or [bsz, num_heads, topk]
+        layer_idx: int, current layer index
+        attn_weights_sum: Optional torch.Tensor, attention weight scores before topk
+        method: str, compression method name
+        save_dir: str, base directory to save logs
+        sample_id: int, sample sequence number (for multiple samples)
+        capacity: int, max_capacity_prompt value (for folder organization)
+        run_timestamp: str, timestamp for this run (for folder organization)
+        num_key_value_groups: int, number of key-value groups (for GQA visualization)
+        dataset_name: str, dataset name (for folder organization)
+    """
+    # Build folder structure: save_dir/topk_indices_logs/timestamp/dataset_name/cap_xxx/
+    save_dir = os.path.join(save_dir, "topk_indices_logs")
+
+    if run_timestamp and capacity is not None and dataset_name:
+        # Full organization: timestamp/dataset/capacity
+        final_dir = os.path.join(save_dir, run_timestamp, dataset_name, f"cap_{capacity}")
+    elif run_timestamp and capacity is not None:
+        # Use provided timestamp and capacity (backward compatible)
+        final_dir = os.path.join(save_dir, run_timestamp, f"cap_{capacity}")
+    elif capacity is not None:
+        # Only capacity provided, use current timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        final_dir = os.path.join(save_dir, timestamp, f"cap_{capacity}")
+    else:
+        # No organization, use base dir directly (backward compatible)
+        final_dir = save_dir
+
+    os.makedirs(final_dir, exist_ok=True)
+
+    # Extract indices (remove head_dim dimension if exists)
+    if indices.dim() == 4:
+        indices_2d = indices[:, :, :, 0]  # [bsz, num_heads, topk]
+    else:
+        indices_2d = indices  # Already [bsz, num_heads, topk]
+
+    # Convert to CPU and numpy for saving
+    indices_np = indices_2d.cpu().numpy()
+
+    # Save to JSON file with sample_id in filename
+    json_file = os.path.join(final_dir, f"{method}_sample{sample_id:03d}_layer{layer_idx}_indices.json")
+
+    # Calculate group assignments for GQA
+    num_heads = indices_np.shape[1]
+    group_info = None
+    if num_key_value_groups is not None and num_key_value_groups > 0:
+        # For GQA: each group has (num_heads // num_kv_heads) query heads
+        # num_kv_heads = num_heads // num_key_value_groups
+        heads_per_group = num_key_value_groups
+        group_assignments = [head_idx // heads_per_group for head_idx in range(num_heads)]
+        num_groups = num_heads // heads_per_group
+
+        group_info = {
+            "num_key_value_groups": num_key_value_groups,
+            "num_query_heads": num_heads,
+            "heads_per_group": heads_per_group,
+            "num_groups": num_groups,
+            "group_assignments": group_assignments  # [0,0,0,0, 1,1,1,1, 2,2,2,2, ...]
+        }
+
+    data = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "sample_id": sample_id,
+        "layer_idx": layer_idx,
+        "method": method,
+        "capacity": capacity,
+        "run_timestamp": run_timestamp,
+        "dataset_name": dataset_name,  # Dataset name for organization
+        "shape": list(indices_np.shape),  # [bsz, num_heads, topk]
+        "indices": indices_np.tolist(),
+        "group_info": group_info  # GQA group information
+    }
+
+    # Optionally save attention scores
+    if attn_weights_sum is not None:
+        scores_np = attn_weights_sum.cpu().numpy()
+        data["attn_scores_shape"] = list(scores_np.shape)
+        data["attn_scores"] = scores_np.tolist()
+
+    with open(json_file, 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print(f"[TopK Indices] Saved sample {sample_id} layer {layer_idx} to {json_file}")
+
+    return json_file
+
+
+def save_key_states(key_states, layer_idx, attn_weights_sum=None, method="snapkv", save_dir="kv_cache_logs", sample_id=0, capacity=None, run_timestamp=None, num_key_value_groups=None, dataset_name=None):
+    """
+    Save complete key states (before repeat_kv) for 3D visualization.
+
+    Args:
+        key_states: torch.Tensor, shape [bsz, num_heads, seq_len, head_dim], the key states AFTER repeat_kv
+        layer_idx: int, current layer index
+        attn_weights_sum: Optional torch.Tensor, attention weight scores
+        method: str, compression method name
+        save_dir: str, base directory to save logs
+        sample_id: int, sample sequence number (for multiple samples)
+        capacity: int, max_capacity_prompt value (for folder organization)
+        run_timestamp: str, timestamp for this run (for folder organization)
+        num_key_value_groups: int, number of query heads per KV group (for extracting original KV heads)
+        dataset_name: str, dataset name (for folder organization)
+    """
+    # Build folder structure: save_dir/key_states_logs/timestamp/dataset_name/cap_xxx/
+    save_dir = os.path.join(save_dir, "key_states_logs")
+
+    if run_timestamp and capacity is not None and dataset_name:
+        final_dir = os.path.join(save_dir, run_timestamp, dataset_name, f"cap_{capacity}")
+    elif run_timestamp and capacity is not None:
+        final_dir = os.path.join(save_dir, run_timestamp, f"cap_{capacity}")
+    elif capacity is not None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        final_dir = os.path.join(save_dir, timestamp, f"cap_{capacity}")
+    else:
+        final_dir = save_dir
+
+    os.makedirs(final_dir, exist_ok=True)
+
+    # Extract original key states before repeat_kv
+    # If GQA is used, key_states has been repeated, we need to extract the original KV heads
+    # Original: [bsz, num_kv_heads, seq_len, head_dim]
+    # After repeat_kv: [bsz, num_heads, seq_len, head_dim] where num_heads = num_kv_heads * num_key_value_groups
+    bsz, num_heads, seq_len, head_dim = key_states.shape
+
+    if num_key_value_groups is not None and num_key_value_groups > 1:
+        # Extract original KV heads (every num_key_value_groups-th head is the same)
+        # Take the first head from each group: heads [0, num_key_value_groups, 2*num_key_value_groups, ...]
+        num_kv_heads = num_heads // num_key_value_groups
+        original_key_states = key_states[:, ::num_key_value_groups, :, :]  # [bsz, num_kv_heads, seq_len, head_dim]
+    else:
+        # No GQA, key_states is already original
+        original_key_states = key_states
+        num_kv_heads = num_heads
+
+    # Convert to CPU and numpy for saving - save ALL key states, not just topk selected ones
+    key_states_np = original_key_states.cpu().numpy()  # [bsz, num_kv_heads, seq_len, head_dim]
+
+    # Save to JSON file with sample_id in filename
+    json_file = os.path.join(final_dir, f"{method}_sample{sample_id:03d}_layer{layer_idx}_keystates.json")
+
+    # Group information
+    group_info = {
+        "num_kv_heads": num_kv_heads,
+        "num_query_heads": num_heads,
+        "num_key_value_groups": num_key_value_groups if num_key_value_groups else 1,
+        "is_gqa": num_key_value_groups is not None and num_key_value_groups > 1
+    }
+
+    data = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "sample_id": sample_id,
+        "layer_idx": layer_idx,
+        "method": method,
+        "capacity": capacity,
+        "run_timestamp": run_timestamp,
+        "dataset_name": dataset_name,
+        "shape": list(key_states_np.shape),  # [bsz, num_kv_heads, seq_len, head_dim]
+        "key_states": key_states_np.tolist(),  # Complete key states for 3D visualization (before repeat_kv)
+        "group_info": group_info
+    }
+
+    # Optionally save attention scores
+    if attn_weights_sum is not None:
+        # Also extract original attention scores for KV heads
+        if num_key_value_groups is not None and num_key_value_groups > 1:
+            original_scores = attn_weights_sum[:, ::num_key_value_groups, :]
+            scores_np = original_scores.cpu().numpy()
+        else:
+            scores_np = attn_weights_sum.cpu().numpy()
+        data["attn_scores_shape"] = list(scores_np.shape)
+        data["attn_scores"] = scores_np.tolist()
+
+    with open(json_file, 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print(f"[Key States] Saved sample {sample_id} layer {layer_idx} to {json_file}")
+
+    return json_file
+
+
+def save_query_states(query_states, layer_idx, attn_weights_sum=None, method="snapkv", save_dir="kv_cache_logs", sample_id=0, capacity=None, run_timestamp=None, num_key_value_groups=None, dataset_name=None):
+    """
+    Save query states (window part) for 3D visualization.
+
+    Args:
+        query_states: torch.Tensor, shape [bsz, num_heads, seq_len, head_dim], the query states (window part)
+        layer_idx: int, current layer index
+        attn_weights_sum: Optional torch.Tensor, attention weight scores
+        method: str, compression method name
+        save_dir: str, base directory to save logs
+        sample_id: int, sample sequence number (for multiple samples)
+        capacity: int, max_capacity_prompt value (for folder organization)
+        run_timestamp: str, timestamp for this run (for folder organization)
+        num_key_value_groups: int, number of query heads per KV group
+        dataset_name: str, dataset name (for folder organization)
+    """
+    # Build folder structure: save_dir/query_states_logs/timestamp/dataset_name/cap_xxx/
+    save_dir = os.path.join(save_dir, "query_states_logs")
+
+    if run_timestamp and capacity is not None and dataset_name:
+        final_dir = os.path.join(save_dir, run_timestamp, dataset_name, f"cap_{capacity}")
+    elif run_timestamp and capacity is not None:
+        final_dir = os.path.join(save_dir, run_timestamp, f"cap_{capacity}")
+    elif capacity is not None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        final_dir = os.path.join(save_dir, timestamp, f"cap_{capacity}")
+    else:
+        final_dir = save_dir
+
+    os.makedirs(final_dir, exist_ok=True)
+
+    # Query states shape: [bsz, num_heads, seq_len, head_dim]
+    # Note: query_states are NOT repeated (each head has unique query)
+    bsz, num_heads, seq_len, head_dim = query_states.shape
+
+    # For GQA, we have num_heads query heads, but only num_kv_heads key/value heads
+    if num_key_value_groups is not None and num_key_value_groups > 1:
+        num_kv_heads = num_heads // num_key_value_groups
+    else:
+        num_kv_heads = num_heads
+
+    # Convert to CPU and numpy for saving
+    query_states_np = query_states.cpu().numpy()  # [bsz, num_heads, seq_len, head_dim]
+
+    # Save to JSON file with sample_id in filename
+    json_file = os.path.join(final_dir, f"{method}_sample{sample_id:03d}_layer{layer_idx}_querystates.json")
+
+    # Group information
+    group_info = {
+        "num_kv_heads": num_kv_heads,
+        "num_query_heads": num_heads,
+        "num_key_value_groups": num_key_value_groups if num_key_value_groups else 1,
+        "is_gqa": num_key_value_groups is not None and num_key_value_groups > 1
+    }
+
+    data = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "sample_id": sample_id,
+        "layer_idx": layer_idx,
+        "method": method,
+        "capacity": capacity,
+        "run_timestamp": run_timestamp,
+        "dataset_name": dataset_name,
+        "shape": list(query_states_np.shape),  # [bsz, num_heads, seq_len, head_dim]
+        "query_states": query_states_np.tolist(),  # Complete query states for window part
+        "group_info": group_info
+    }
+
+    # Optionally save attention scores
+    if attn_weights_sum is not None:
+        # Query heads are not repeated, so use scores as-is
+        scores_np = attn_weights_sum.cpu().numpy()
+        data["attn_scores_shape"] = list(scores_np.shape)
+        data["attn_scores"] = scores_np.tolist()
+
+    with open(json_file, 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print(f"[Query States] Saved sample {sample_id} layer {layer_idx} to {json_file}")
+
+    return json_file
 
 
 class DynamicCacheSplitHeadFlatten(Cache):

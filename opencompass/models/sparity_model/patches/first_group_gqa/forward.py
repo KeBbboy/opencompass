@@ -1,6 +1,7 @@
 import math
 import warnings
 from typing import List, Optional, Tuple, Union
+import os
 import time
 import torch
 import torch.nn as nn
@@ -17,11 +18,12 @@ from transformers.utils import logging
 logger = logging.get_logger(__name__)
 
 # Import local init function
-from .init_utils import init_snapkv
+from .init_utils import init_first_group_gqa
 from ..utils.kv_utils import estimate_kv_memory
 
 
-def llama_sdpa_attn_forward_SnapKV(
+
+def llama_sdpa_attn_forward_first_group_gqa(
     self,
     hidden_states: torch.Tensor,
     attention_mask: Optional[torch.Tensor] = None,
@@ -50,8 +52,8 @@ def llama_sdpa_attn_forward_SnapKV(
             cache_position=cache_position,
             position_embeddings=position_embeddings,
         )
-    
-    init_snapkv(self)
+
+    init_first_group_gqa(self)
     bsz, q_len, _ = hidden_states.size()
 
     query_states = self.q_proj(hidden_states)
@@ -81,8 +83,7 @@ def llama_sdpa_attn_forward_SnapKV(
 
     query_states, key_states = apply_rotary_pos_emb(query_states, key_states,
                                                     cos, sin)
-    key_states = repeat_kv(key_states, self.num_key_value_groups)
-    value_states = repeat_kv(value_states, self.num_key_value_groups)
+
 
     if past_key_value is not None:
         # sin and cos are specific to RoPE models; cache_position needed for the static cache
@@ -92,14 +93,15 @@ def llama_sdpa_attn_forward_SnapKV(
             'cache_position': cache_position
         }
         if key_states.shape[-2] != 1:
-            # Removed debug prints for performance (layer 23 diagnostics)
             key_states_compress, value_states_compress = self.kv_cluster.update_kv(
                 key_states, query_states, value_states, attention_mask,
-                self.num_key_value_groups, layer_idx=self.layer_idx)
+                self.num_key_value_groups)
 
-            
+
             past_key_value.update(key_states_compress, value_states_compress,
                                   self.layer_idx, cache_kwargs)
+
+
             if self.layer_idx == 27:
                 # 获取 method 和 max_capacity_prompt 参数
                 method = getattr(self.config, 'method', 'unknown')
@@ -115,12 +117,28 @@ def llama_sdpa_attn_forward_SnapKV(
 
                 estimate_kv_memory(past_key_value, method=method, max_capacity_prompt=max_capacity_prompt)
         else:
+
+
             key_states, value_states = past_key_value.update(
                 key_states, value_states, self.layer_idx, cache_kwargs)
-       
 
 
+        if self.layer_idx == 27:
+            print("=========================== past_key_value ===========================")
 
+            key_cache = past_key_value.key_cache
+            value_cache = past_key_value.value_cache
+
+            print(f"KV dtype: {key_cache[0].dtype}")
+            print(f"Key cache 层数: {len(key_cache)}")
+            print(f"Value cache 层数: {len(value_cache)}")
+
+            for i, (k, v) in enumerate(zip(key_cache, value_cache)):
+                if i == 23:
+                    print(f"[Layer {i}] key shape: {k.shape}, value shape: {v.shape}")
+
+    key_states = repeat_kv(key_states, self.num_key_value_groups)
+    value_states = repeat_kv(value_states, self.num_key_value_groups)
     causal_mask = attention_mask
     if attention_mask is not None:
         causal_mask = causal_mask[:, :, :, :key_states.shape[-2]]
@@ -151,4 +169,3 @@ def llama_sdpa_attn_forward_SnapKV(
     attn_output = self.o_proj(attn_output)
 
     return attn_output, None, past_key_value
-

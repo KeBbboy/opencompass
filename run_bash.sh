@@ -11,9 +11,11 @@ CONFIG_FILE="opencompass/configs/sparity_config/run_Longbench.py"
 # 定义要测试的方法
 METHODS=(
     # "full"
-    "topk_gqa"
+    # "first_group_gqa"
+    # "topk_gqa"
     # "topk_gqa_global"
     # "min_max_gqa"
+    
     # "min_max_gqa_global"
     # "min_max_gqa_chunk"
     # "min_max_gqa_chunk_global"
@@ -25,7 +27,7 @@ METHODS=(
     # "windowkv"
     # "windowkv_gqa"
 
-    
+    "snapkv"
     # "pyramidkv"
     # "pyramidkv_gqa"
 )
@@ -35,10 +37,10 @@ CAPACITIES=(
     # 8192
     # 4096
     # 2048
-    # 1024
-    512
-    256
-    128
+    1024
+    # 512
+    # 256
+    # 128
 )
 
 # 定义要测试的 torch_dtype 值
@@ -79,6 +81,7 @@ for method in "${METHODS[@]}"; do
             SPARITY_METHOD=$method \
             MAX_CAPACITY_PROMPT=$capacity \
             TORCH_DTYPE=$dtype \
+            RUN_TIMESTAMP=$TIMESTAMP \
             python run.py "$CONFIG_FILE" --debug 2>&1 | tee "$LOG_FILE"
 
             EXIT_CODE=${PIPESTATUS[0]}
