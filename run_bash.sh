@@ -25,9 +25,9 @@ METHODS=(
     # "sum_gqa_chunk_global"
 
     # "windowkv"
-    # "windowkv_gqa"
+    "windowkv_gqa"
 
-    "snapkv"
+    # "snapkv"
     # "pyramidkv"
     # "pyramidkv_gqa"
 )
@@ -36,10 +36,10 @@ METHODS=(
 CAPACITIES=(
     # 8192
     # 4096
-    # 2048
+    2048
     1024
-    # 512
-    # 256
+    512
+    256
     # 128
 )
 

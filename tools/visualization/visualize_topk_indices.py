@@ -261,6 +261,130 @@ def plot_per_head_indices(data, num_heads_to_plot=4, save_path=None):
     plt.close()
 
 
+def plot_head_similarity_matrix(data, save_path=None):
+    """
+    绘制 head × head 的相似度矩阵
+
+    矩阵的 (i, j) 位置表示 head_i 和 head_j 的 topk 索引之间的 Jaccard 相似度
+    Jaccard 相似度 = |A ∩ B| / |A ∪ B|
+    """
+    indices = np.array(data['indices'])  # [bsz, num_heads, topk]
+    layer_idx = data['layer_idx']
+    group_info = data.get('group_info', None)
+
+    # 只取第一个 batch
+    indices_single = indices[0]  # [num_heads, topk]
+    num_heads, topk = indices_single.shape
+
+    # 初始化相似度矩阵
+    similarity_matrix = np.zeros((num_heads, num_heads))
+
+    # 计算每对 head 之间的 Jaccard 相似度
+    for i in range(num_heads):
+        for j in range(num_heads):
+            if i == j:
+                similarity_matrix[i, j] = 1.0  # 自己和自己完全相同
+            else:
+                # 转换为集合
+                set_i = set(indices_single[i].tolist())
+                set_j = set(indices_single[j].tolist())
+
+                # 计算 Jaccard 相似度
+                intersection = len(set_i & set_j)
+                union = len(set_i | set_j)
+                similarity_matrix[i, j] = intersection / union if union > 0 else 0
+
+    # 绘制热力图
+    fig, ax = plt.subplots(figsize=(max(12, num_heads * 0.4), max(10, num_heads * 0.35)))
+
+    # 使用 'YlOrRd' 或 'RdYlGn' colormap
+    im = ax.imshow(similarity_matrix, cmap='YlOrRd', vmin=0, vmax=1, aspect='auto', interpolation='nearest')
+
+    # 设置标签
+    ax.set_xlabel('Head Index', fontsize=14, fontweight='bold')
+    ax.set_ylabel('Head Index', fontsize=14, fontweight='bold')
+
+    # 标题根据是否有 group 信息调整
+    if group_info:
+        title = f'Layer {layer_idx}: Head-to-Head TopK Similarity Matrix (Jaccard)\n' \
+                f'GQA: {group_info["num_groups"]} groups, {group_info["heads_per_group"]} heads/group'
+    else:
+        title = f'Layer {layer_idx}: Head-to-Head TopK Similarity Matrix (Jaccard)'
+    ax.set_title(title, fontsize=16, fontweight='bold', pad=20)
+
+    # 设置刻度
+    ax.set_xticks(np.arange(num_heads))
+    ax.set_yticks(np.arange(num_heads))
+
+    # 如果有 group 信息，在标签中显示 group
+    if group_info:
+        group_assignments = group_info['group_assignments']
+        ax.set_xticklabels([f'{i}\n(G{group_assignments[i]})' for i in range(num_heads)], fontsize=9)
+        ax.set_yticklabels([f'{i} (G{group_assignments[i]})' for i in range(num_heads)], fontsize=9)
+
+        # 添加 group 分隔线
+        heads_per_group = group_info['heads_per_group']
+        for g in range(1, group_info['num_groups']):
+            boundary = g * heads_per_group - 0.5
+            ax.axhline(y=boundary, color='blue', linewidth=2, linestyle='--', alpha=0.7)
+            ax.axvline(x=boundary, color='blue', linewidth=2, linestyle='--', alpha=0.7)
+    else:
+        ax.set_xticklabels([f'{i}' for i in range(num_heads)], fontsize=10)
+        ax.set_yticklabels([f'{i}' for i in range(num_heads)], fontsize=10)
+
+    # 添加 colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label('Jaccard Similarity', rotation=270, labelpad=25, fontsize=12, fontweight='bold')
+
+    # 在每个格子中显示相似度数值（可选，如果 head 数量不多）
+    if num_heads <= 20:
+        for i in range(num_heads):
+            for j in range(num_heads):
+                text = ax.text(j, i, f'{similarity_matrix[i, j]:.2f}',
+                             ha="center", va="center", color="black" if similarity_matrix[i, j] < 0.5 else "white",
+                             fontsize=max(6, 10 - num_heads // 5))
+
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Saved head similarity matrix to {save_path}")
+
+        # 打印统计信息
+        print(f"\nHead Similarity Statistics (Layer {layer_idx}):")
+        print(f"Number of heads: {num_heads}")
+        print(f"Average similarity (excluding diagonal): {np.mean(similarity_matrix[~np.eye(num_heads, dtype=bool)]):.4f}")
+        print(f"Max similarity (excluding diagonal): {np.max(similarity_matrix[~np.eye(num_heads, dtype=bool)]):.4f}")
+        print(f"Min similarity (excluding diagonal): {np.min(similarity_matrix[~np.eye(num_heads, dtype=bool)]):.4f}")
+
+        # 如果有 group 信息，计算组内和组间的平均相似度
+        if group_info:
+            heads_per_group = group_info['heads_per_group']
+            num_groups = group_info['num_groups']
+
+            intra_group_similarities = []
+            inter_group_similarities = []
+
+            for i in range(num_heads):
+                for j in range(i + 1, num_heads):  # 只看上三角，避免重复
+                    group_i = i // heads_per_group
+                    group_j = j // heads_per_group
+
+                    if group_i == group_j:
+                        intra_group_similarities.append(similarity_matrix[i, j])
+                    else:
+                        inter_group_similarities.append(similarity_matrix[i, j])
+
+            if intra_group_similarities:
+                print(f"Average intra-group similarity: {np.mean(intra_group_similarities):.4f}")
+            if inter_group_similarities:
+                print(f"Average inter-group similarity: {np.mean(inter_group_similarities):.4f}")
+    else:
+        plt.show()
+
+    plt.close()
+
+
 def plot_group_overlap_comparison(data, save_path=None):
     """
     计算并可视化同一个 GQA group 内重复选到的 token 百分比
@@ -393,7 +517,7 @@ def main():
     parser.add_argument('--output_dir', type=str, default='kv_cache_logs/visualizations/topk_indices',
                        help='Directory to save visualization plots')
     parser.add_argument('--plot_types', nargs='+',
-                       choices=['heatmap', 'distribution', 'attention', 'per_head', 'group_overlap', 'all'],
+                       choices=['heatmap', 'distribution', 'attention', 'per_head', 'group_overlap', 'head_similarity', 'all'],
                        default=['all'],
                        help='Types of plots to generate')
 
@@ -483,7 +607,7 @@ def main():
 
         plot_types = args.plot_types
         if 'all' in plot_types:
-            plot_types = ['heatmap', 'distribution', 'attention', 'per_head', 'group_overlap']
+            plot_types = ['heatmap', 'distribution', 'attention', 'per_head', 'group_overlap', 'head_similarity']
 
         # 生成各种图表，每种类型保存到独立的子文件夹
         # 文件夹结构：output_dir/{dataset_name}/cap_{capacity}/{plot_type}/sample_layer.png
@@ -516,6 +640,12 @@ def main():
             os.makedirs(group_overlap_dir, exist_ok=True)
             save_path = os.path.join(group_overlap_dir, f'{base_name}.png')
             plot_group_overlap_comparison(data, save_path)
+
+        if 'head_similarity' in plot_types:
+            head_similarity_dir = os.path.join(output_base_dir, 'head_similarity')
+            os.makedirs(head_similarity_dir, exist_ok=True)
+            save_path = os.path.join(head_similarity_dir, f'{base_name}.png')
+            plot_head_similarity_matrix(data, save_path)
 
     print(f"\n✓ Visualization complete! Plots saved to {args.output_dir}/")
 

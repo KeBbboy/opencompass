@@ -262,11 +262,51 @@ python tools/visualization/visualize_query_states_3d.py \
     --mode matplotlib \
     --all_heads \
     --plot_style wireframe
+
+# 🎯 GQA Group 对比模式：查看同一 group 内不同 heads 的差异
+# 模式1：overlay - 所有 heads 在一个 3D 图中，用不同颜色区分
+python tools/visualization/visualize_query_states_3d.py \
+    --input kv_cache_logs/query_states_logs/.../sample000_layer0_querystates.json \
+    --mode group_comparison \
+    --group_idx 0 \
+    --comparison_type overlay
+
+# 模式2：subplots - 每个 head 单独显示在子图中
+python tools/visualization/visualize_query_states_3d.py \
+    --input kv_cache_logs/query_states_logs/.../sample000_layer0_querystates.json \
+    --mode group_comparison \
+    --group_idx 0 \
+    --comparison_type subplots
+
+# 模式3：difference - 显示与第一个 head 的差异（使用 diverging colormap）
+python tools/visualization/visualize_query_states_3d.py \
+    --input kv_cache_logs/query_states_logs/.../sample000_layer0_querystates.json \
+    --mode group_comparison \
+    --group_idx 0 \
+    --comparison_type difference
 ```
 
 #### 参数说明
 
-参数与 `visualize_key_states_3d.py` 完全相同，只是数据来源不同。
+参数与 `visualize_key_states_3d.py` 基本相同，新增以下参数：
+
+- `--mode group_comparison`: 启用 GQA group 对比模式
+- `--group_idx`: 指定要可视化的 GQA group 索引（默认: 0）
+- `--comparison_type`: 对比类型
+  - `overlay`: 所有 heads 叠加在一个 3D 图中，用不同颜色和图例区分
+  - `subplots`: 每个 head 单独显示在子图网格中，便于逐个对比
+  - `difference`: 显示每个 head 与第一个 head（参考 head）的差异，使用 diverging colormap（红蓝色）突出差异
+
+**应用场景**：
+- **overlay**: 快速查看整体趋势，适合发现明显异常的 head
+- **subplots**: 详细对比每个 head 的特征，适合精确分析
+- **difference**: 量化 head 之间的差异，适合寻找最相似/不同的 head
+
+**输出说明**：
+- 如果数据包含负数，会自动生成两个版本：
+  - `original/`: 保留原始值（包括负数）
+  - `shifted/`: 将所有值向上平移，使最小值为 0（便于观察相对差异）
+- 两个版本的图在标题中会有相应标注
 
 **默认输出目录**: `kv_cache_logs/visualizations/query_states`
 
@@ -406,6 +446,52 @@ python tools/visualization/visualize_key_states_3d.py \
     --sample_dims 16        # 更稀疏的采样
 ```
 
+### 5. 分析 GQA 中的 Query Head 差异
+
+在 Grouped Query Attention 中，多个 query heads 共享同一个 KV head。使用 group_comparison 模式可以分析同一 group 内不同 query heads 的行为差异：
+
+```bash
+# 步骤1：先查看数据的 group 信息
+python tools/visualization/visualize_query_states_3d.py \
+    --input kv_cache_logs/query_states_logs/.../sample000_layer0_querystates.json \
+    --mode matplotlib \
+    --head 0
+# 输出会显示: num_query_heads=32, num_kv_heads=4, 每个 group 有 8 个 query heads
+
+# 步骤2：对比第 0 个 group 内的所有 query heads (heads 0-7)
+# 使用 subplots 模式查看每个 head 的细节
+python tools/visualization/visualize_query_states_3d.py \
+    --input kv_cache_logs/query_states_logs/.../sample000_layer0_querystates.json \
+    --mode group_comparison \
+    --group_idx 0 \
+    --comparison_type subplots
+
+# 步骤3：使用 difference 模式量化差异
+python tools/visualization/visualize_query_states_3d.py \
+    --input kv_cache_logs/query_states_logs/.../sample000_layer0_querystates.json \
+    --mode group_comparison \
+    --group_idx 0 \
+    --comparison_type difference
+
+# 步骤4：对比不同 groups (例如 group 0 vs group 1)
+python tools/visualization/visualize_query_states_3d.py \
+    --input kv_cache_logs/query_states_logs/.../sample000_layer0_querystates.json \
+    --mode group_comparison \
+    --group_idx 0 \
+    --comparison_type overlay
+
+python tools/visualization/visualize_query_states_3d.py \
+    --input kv_cache_logs/query_states_logs/.../sample000_layer0_querystates.json \
+    --mode group_comparison \
+    --group_idx 1 \
+    --comparison_type overlay
+```
+
+**分析要点**：
+- 如果同一 group 内的 heads 差异很大（difference 模式显示较大值），说明这些 heads 关注不同的特征
+- 如果 heads 非常相似（difference 模式接近 0），可能存在冗余，compression 对这些 heads 影响较小
+- 通过对比不同 groups，可以理解模型如何分配注意力资源
+
 ---
 
 ## 🐛 常见问题
@@ -442,6 +528,21 @@ rm -rf kv_cache_logs/query_states_logs/20251127_043533
 - matplotlib: PNG (默认 300 DPI)
 - plotly: HTML (交互式)
 
+### Q6: 什么时候使用 group_comparison 模式？
+
+**A**: `group_comparison` 模式专门用于分析 GQA (Grouped Query Attention) 中同一 group 内不同 query heads 的行为差异。适用场景：
+
+1. **理解 Query Head 冗余性**：如果同一 group 内的多个 heads 非常相似，说明可能存在冗余
+2. **分析注意力多样性**：通过对比 heads 差异，了解模型如何分配注意力资源
+3. **调试 KV 压缩算法**：观察压缩后不同 heads 的表现差异
+
+**三种对比类型的选择**：
+- `overlay`: 快速概览，适合发现异常 head
+- `subplots`: 详细对比，适合逐个分析每个 head
+- `difference`: 量化差异，适合寻找最相似/不同的 head pairs
+
+**示例**：如果模型有 32 个 query heads 和 4 个 KV heads，每个 group 包含 8 个 query heads。使用 `--group_idx 0` 会对比 heads 0-7 的差异。
+
 ---
 
 ## 📊 输出示例
@@ -463,6 +564,9 @@ rm -rf kv_cache_logs/query_states_logs/20251127_043533
 - ✨ 统一目录结构，所有数据保存到 `kv_cache_logs/`
 - ✨ 添加 Query States 保存和可视化功能
 - ✨ 可视化输出统一到 `kv_cache_logs/visualizations/`
+- ✨ 新增 `group_comparison` 模式：对比同一 GQA group 内不同 query heads 的差异
+  - 支持三种对比类型：overlay（叠加）、subplots（子图）、difference（差异）
+  - 帮助分析 query head 冗余性和注意力多样性
 - 🐛 修复了 `save_key_states` 和 `save_query_states` 缺少默认值检查的问题
 - 📝 完善文档和使用说明
 

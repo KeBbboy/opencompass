@@ -121,10 +121,10 @@ datasets = [
 models = [
     dict(
         type=QwenAttentionConvert,
-        # abbr='qwen2.5-14b-instruct-hf',
-        # path='Qwen/Qwen2.5-14B-Instruct',
-        abbr='qwen2.5-7b-instruct-hf',
-        path='Qwen/Qwen2.5-7B-Instruct',
+        abbr='qwen2.5-14b-instruct-hf',
+        path='Qwen/Qwen2.5-14B-Instruct',
+        # abbr='qwen2.5-7b-instruct-hf',
+        # path='Qwen/Qwen2.5-7B-Instruct',
         is_use_sparse=True,
         max_seq_len=32768,
         max_out_len=256,
@@ -143,9 +143,9 @@ models = [
                 # Visualization parameters
                 save_indices=False,           # 启用索引保存
                 save_key_states=False,       # 启用key states保存
-                save_query_states=True,     # 启用query states保存（window部分）
+                save_query_states=False,     # 启用query states保存（window部分）
                 visualize_layer=None,        # 保存所有层（0=只保存第0层）
-                max_samples_to_save=5,      # 保存前10个样本
+                max_samples_to_save=3,      # 保存前10个样本
         ),
         kivi_kwargs=dict(
             # KIVI-specific parameters (only used when method='full_KIVI')
