@@ -35,6 +35,7 @@ import pprint
 from opencompass.models.sparity_model.utils.prepare_input_pd import build_generation_inputs
 from opencompass.models.sparity_model.utils.common_utils import extract_question_part, _set_model_kwargs_torch_dtype,_get_stopping_criteria,_get_meta_template,_set_model_kwargs_torch_dtype,_get_possible_max_seq_len,_convert_chat_messages
 from opencompass.models.sparity_model.monkeypatch import replace_model
+from opencompass.models.sparity_model.utils.ttft_measurer import create_ttft_measurer
 
 @MODELS.register_module()
 class QwenAttentionConvert(BaseModel):
@@ -81,6 +82,11 @@ class QwenAttentionConvert(BaseModel):
         self.stop_words = list(set(stop_words + self._get_potential_stop_words(path)))
         assert mode in ['none', 'mid']
         self.mode = mode
+
+        # TTFT 测量配置（完全解耦，可选功能）
+        self.enable_ttft = other_kwargs.pop('enable_ttft', False)
+        self.ttft_save_dir = other_kwargs.pop('ttft_save_dir', './ttft_logs')
+        self.ttft_save_to_file = other_kwargs.pop('ttft_save_to_file', True)
 
 
     def _load_tokenizer(self, path: Optional[str], kwargs: dict, pad_token_id: Optional[int] = None):
@@ -368,8 +374,30 @@ class QwenAttentionConvert(BaseModel):
         generation_kwargs = self.generation_kwargs.copy()
         generation_kwargs.update(kwargs)
         stopping_criteria = list(set(stopping_criteria + self.stop_words))
+
+        # TTFT 测量器集成（完全解耦，不影响原有逻辑）
+        ttft_measurer = None
+        if self.enable_ttft:
+            # 生成任务名称：使用 task_info 或生成默认名称
+            task_name = task_info if task_info else f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            ttft_measurer = create_ttft_measurer(
+                save_dir=self.ttft_save_dir,
+                task_name=task_name,
+                enable=True,
+                save_to_file=self.ttft_save_to_file
+            )
+            ttft_measurer.start()
+
         if stopping_criteria:
             generation_kwargs['stopping_criteria'] = _get_stopping_criteria(stopping_criteria, self.tokenizer, batch_size)
+
+        # 将 TTFT 测量器添加到 stopping_criteria 中
+        if ttft_measurer is not None:
+            if 'stopping_criteria' not in generation_kwargs:
+                from transformers import StoppingCriteriaList
+                generation_kwargs['stopping_criteria'] = StoppingCriteriaList([])
+            generation_kwargs['stopping_criteria'].append(ttft_measurer)
+
         if max_out_len is not None:
             generation_kwargs['max_new_tokens'] = max_out_len
         if min_out_len is not None:
@@ -413,13 +441,42 @@ class QwenAttentionConvert(BaseModel):
         outputs = self.model.generate(**tokens, **generation_kwargs)
         outputs = outputs[:, tokens['input_ids'].shape[1]:]
         # generate sequences may contain the input tokens, so we need to remove them
-        
+
         # outputs = outputs[:, tokens['input_ids'].shape[1]:]
 
         # step-3: decode the output
         decodeds = self.tokenizer.batch_decode(outputs)
         for stop in stopping_criteria:
             decodeds = [t.split(stop)[0] for t in decodeds]
+
+        # TTFT 结果保存（完全解耦，不影响返回值）
+        if ttft_measurer is not None:
+            # 获取输入和输出文本用于记录
+            input_text = messages[0] if len(messages) > 0 else ""
+            if isinstance(input_text, list):
+                input_text = str(input_text)
+            output_text = decodeds[0] if len(decodeds) > 0 else ""
+
+            # 保存额外信息
+            extra_info = {
+                'batch_size': batch_size,
+                'input_tokens': tokens['input_ids'].shape[1],
+                'output_tokens': outputs.shape[1] if outputs is not None else 0,
+                'max_out_len': max_out_len,
+                'method': getattr(self, 'method', 'unknown'),
+                'model_path': self.path,
+            }
+
+            # 保存 TTFT 测量结果
+            ttft_measurer.save_metrics(
+                input_text=input_text,
+                output_text=output_text,
+                extra_info=extra_info
+            )
+
+            # 打印摘要
+            ttft_measurer.print_summary()
+
         return decodeds
 
     def get_token_len(self, prompt: str) -> int:

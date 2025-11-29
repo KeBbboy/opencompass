@@ -26,6 +26,7 @@ from .topk_gqa import apply_topk_gqa
 from .topk_gqa_global import apply_topk_gqa_global
 from .center_topk_gqa import apply_center_topk_gqa
 from .first_group_gqa import apply_first_group_gqa
+from .RQA_sum import apply_RQA_sum
 
 __all__ = [
     'apply_pyramidkv',
@@ -54,4 +55,5 @@ __all__ = [
     'apply_topk_gqa_global',
     'apply_center_topk_gqa',
     'apply_first_group_gqa',
+    'apply_RQA_sum',
 ]

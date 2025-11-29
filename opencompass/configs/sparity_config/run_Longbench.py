@@ -79,13 +79,6 @@ needlebench_datasets = sum((v for k, v in locals().items() if k.endswith('_datas
 import os as _temp_os
 
 # Debug: Print environment variables when config is loaded
-print("\n" + "="*60)
-print("[Config File] Reading environment variables...")
-print(f"  KIVI_K_BITS env = {_temp_os.getenv('KIVI_K_BITS', 'NOT_SET')}")
-print(f"  KIVI_V_BITS env = {_temp_os.getenv('KIVI_V_BITS', 'NOT_SET')}")
-print(f"  KIVI_GROUP_SIZE env = {_temp_os.getenv('KIVI_GROUP_SIZE', 'NOT_SET')}")
-print(f"  KIVI_RESIDUAL_LENGTH env = {_temp_os.getenv('KIVI_RESIDUAL_LENGTH', 'NOT_SET')}")
-print("="*60 + "\n")
 
 SPARITY_METHOD = _temp_os.getenv('SPARITY_METHOD', 'snapkv_global')
 MAX_CAPACITY_PROMPT = int(_temp_os.getenv('MAX_CAPACITY_PROMPT', '512'))
@@ -96,12 +89,16 @@ KIVI_V_BITS = int(_temp_os.getenv('KIVI_V_BITS', '2'))
 KIVI_GROUP_SIZE = int(_temp_os.getenv('KIVI_GROUP_SIZE', '32'))
 KIVI_RESIDUAL_LENGTH = int(_temp_os.getenv('KIVI_RESIDUAL_LENGTH', '32'))
 
+# TTFT measurement parameters
+ENABLE_TTFT = _temp_os.getenv('ENABLE_TTFT', 'False').lower() in ('true', '1', 'yes')
+TTFT_SAVE_DIR = _temp_os.getenv('TTFT_SAVE_DIR', './ttft_logs')
+TTFT_SAVE_TO_FILE = _temp_os.getenv('TTFT_SAVE_TO_FILE', 'True').lower() in ('true', '1', 'yes')
+
 print("\n" + "="*60)
 print("[Config File] Final values after reading:")
-print(f"  KIVI_K_BITS = {KIVI_K_BITS}")
-print(f"  KIVI_V_BITS = {KIVI_V_BITS}")
-print(f"  KIVI_GROUP_SIZE = {KIVI_GROUP_SIZE}")
-print(f"  KIVI_RESIDUAL_LENGTH = {KIVI_RESIDUAL_LENGTH}")
+print(f"  ENABLE_TTFT = {ENABLE_TTFT}")
+print(f"  TTFT_SAVE_DIR = {TTFT_SAVE_DIR}")
+print(f"  TTFT_SAVE_TO_FILE = {TTFT_SAVE_TO_FILE}")
 print("="*60 + "\n")
 
 del _temp_os  
@@ -121,10 +118,10 @@ datasets = [
 models = [
     dict(
         type=QwenAttentionConvert,
-        abbr='qwen2.5-14b-instruct-hf',
-        path='Qwen/Qwen2.5-14B-Instruct',
-        # abbr='qwen2.5-7b-instruct-hf',
-        # path='Qwen/Qwen2.5-7B-Instruct',
+        # abbr='qwen2.5-14b-instruct-hf',
+        # path='Qwen/Qwen2.5-14B-Instruct',
+        abbr='qwen2.5-7b-instruct-hf',
+        path='Qwen/Qwen2.5-7B-Instruct',
         is_use_sparse=True,
         max_seq_len=32768,
         max_out_len=256,
@@ -153,6 +150,11 @@ models = [
             v_bits=KIVI_V_BITS,              # Value quantization bits (1-8)
             group_size=KIVI_GROUP_SIZE,         # Quantization group size
             residual_length=KIVI_RESIDUAL_LENGTH,   # Number of recent tokens kept in full precision
-        )
+        ),
+
+        # TTFT measurement configuration (完全解耦，不影响原有逻辑)
+        enable_ttft=ENABLE_TTFT,            # 启用/禁用 TTFT 测量
+        ttft_save_dir=TTFT_SAVE_DIR,        # TTFT 日志保存目录
+        ttft_save_to_file=TTFT_SAVE_TO_FILE,  # 是否保存到文件
     )
 ]

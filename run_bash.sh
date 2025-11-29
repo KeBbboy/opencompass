@@ -11,6 +11,10 @@ CONFIG_FILE="opencompass/configs/sparity_config/run_Longbench.py"
 # 定义要测试的方法
 METHODS=(
     # "full"
+
+    # "RQA_sum"
+    "RQA_mean"
+
     # "first_group_gqa"
     # "topk_gqa"
     # "topk_gqa_global"
@@ -25,7 +29,7 @@ METHODS=(
     # "sum_gqa_chunk_global"
 
     # "windowkv"
-    "windowkv_gqa"
+    # "windowkv_gqa"
 
     # "snapkv"
     # "pyramidkv"
@@ -34,8 +38,8 @@ METHODS=(
 
 # 定义要测试的 max_capacity_prompt 值
 CAPACITIES=(
-    # 8192
-    # 4096
+    8192
+    4096
     2048
     1024
     512
@@ -46,8 +50,13 @@ CAPACITIES=(
 # 定义要测试的 torch_dtype 值
 DTYPES=(
     # "float16"
-    "bfloat16"    
+    "bfloat16"
 )
+
+# ============ TTFT 测量配置 (完全解耦，可选功能) ============
+ENABLE_TTFT=True                         # 启用/禁用 TTFT 测量
+TTFT_SAVE_DIR="./ttft_logs"              # TTFT 日志保存目录
+TTFT_SAVE_TO_FILE=True                   # 是否保存到文件
 
 # ============ 脚本开始 ============
 
@@ -61,6 +70,10 @@ echo "批量实验开始"
 echo "GPU: $GPU_ID"
 echo "配置文件: $CONFIG_FILE"
 echo "日志目录: $LOG_DIR"
+echo "TTFT 测量: $ENABLE_TTFT"
+if [ "$ENABLE_TTFT" = "True" ]; then
+    echo "TTFT 保存目录: $TTFT_SAVE_DIR"
+fi
 echo "=========================================="
 
 # 遍历所有组合
@@ -77,11 +90,17 @@ for method in "${METHODS[@]}"; do
             LOG_FILE="$LOG_DIR/${method}_capacity${capacity}_${dtype}.log"
             echo "日志文件: $LOG_FILE"
 
+            # 设置 TTFT 保存路径（包含实验参数信息）
+            TTFT_EXP_DIR="${TTFT_SAVE_DIR}/${method}_capacity${capacity}"
+
             CUDA_VISIBLE_DEVICES=$GPU_ID \
             SPARITY_METHOD=$method \
             MAX_CAPACITY_PROMPT=$capacity \
             TORCH_DTYPE=$dtype \
             RUN_TIMESTAMP=$TIMESTAMP \
+            ENABLE_TTFT=$ENABLE_TTFT \
+            TTFT_SAVE_DIR=$TTFT_EXP_DIR \
+            TTFT_SAVE_TO_FILE=$TTFT_SAVE_TO_FILE \
             python run.py "$CONFIG_FILE" --debug 2>&1 | tee "$LOG_FILE"
 
             EXIT_CODE=${PIPESTATUS[0]}
@@ -103,6 +122,9 @@ echo ""
 echo "=========================================="
 echo "所有实验完成！"
 echo "结果保存在: $LOG_DIR"
+if [ "$ENABLE_TTFT" = "True" ]; then
+    echo "TTFT 日志保存在: $TTFT_SAVE_DIR"
+fi
 echo "=========================================="
 
 # 生成摘要

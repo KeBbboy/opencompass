@@ -35,6 +35,7 @@ from .patches import (
     apply_topk_gqa_global,
     apply_center_topk_gqa,
     apply_first_group_gqa,
+    apply_RQA_sum,
 )
 from .patches.common import (
     load_model_with_fallback,
@@ -143,6 +144,7 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False): 
         'topk_gqa_global': apply_topk_gqa_global,
         'center_topk_gqa': apply_center_topk_gqa,
         'first_group_gqa': apply_first_group_gqa,
+        'RQA_sum': apply_RQA_sum,
     }
     
     if method in method_handlers:
