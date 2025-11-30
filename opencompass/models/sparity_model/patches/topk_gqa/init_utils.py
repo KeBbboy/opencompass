@@ -48,7 +48,7 @@ class TopKKVCluster_gqa():
                  merge=None,
                  recent_size=32,
                  ratio=0.4,
-                 topk_heads=2):  # 新增参数：每组选取 top-k 个 Q heads
+                 topk_heads=1):  # 新增参数：每组选取 top-k 个 Q heads
         self.window_size = window_size
         self.max_capacity_prompt = max_capacity_prompt
         self.ratio = ratio

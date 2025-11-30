@@ -17,7 +17,8 @@ LongBench_lcc_infer_cfg = dict(
             round=[
                 dict(
                     role='HUMAN',
-                    prompt='Please complete the code given below. \n{context}Next line of code:\n',
+                    # prompt='Please complete the code given below. \n{context}Next line of code:\n',
+                    prompt='{context}',
                 ),
             ],
         ),

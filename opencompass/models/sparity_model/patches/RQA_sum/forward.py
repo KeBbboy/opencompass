@@ -123,19 +123,6 @@ def llama_sdpa_attn_forward_RQA_sum(
                 key_states, value_states, self.layer_idx, cache_kwargs)
 
 
-        if self.layer_idx == 27:
-            print("=========================== past_key_value ===========================")
-
-            key_cache = past_key_value.key_cache
-            value_cache = past_key_value.value_cache
-
-            print(f"KV dtype: {key_cache[0].dtype}")
-            print(f"Key cache 层数: {len(key_cache)}")
-            print(f"Value cache 层数: {len(value_cache)}")
-
-            for i, (k, v) in enumerate(zip(key_cache, value_cache)):
-                if i == 23:
-                    print(f"[Layer {i}] key shape: {k.shape}, value shape: {v.shape}")
 
     key_states = repeat_kv(key_states, self.num_key_value_groups)
     value_states = repeat_kv(value_states, self.num_key_value_groups)

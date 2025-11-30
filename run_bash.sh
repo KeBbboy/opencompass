@@ -13,17 +13,18 @@ METHODS=(
     # "full"
 
     # "RQA_sum"
-    "RQA_mean"
+    # "RQA_mean"
+    # "RQA_mean_softmax"
 
     # "first_group_gqa"
-    # "topk_gqa"
+    "topk_gqa"
     # "topk_gqa_global"
     # "min_max_gqa"
     
     # "min_max_gqa_global"
     # "min_max_gqa_chunk"
     # "min_max_gqa_chunk_global"
-    # "sum_gqa"
+    "sum_gqa"
     # "sum_gqa_global"
     # "sum_gqa_chunk"
     # "sum_gqa_chunk_global"
@@ -38,8 +39,8 @@ METHODS=(
 
 # 定义要测试的 max_capacity_prompt 值
 CAPACITIES=(
-    8192
-    4096
+    # 8192
+    # 4096
     2048
     1024
     512
@@ -54,9 +55,9 @@ DTYPES=(
 )
 
 # ============ TTFT 测量配置 (完全解耦，可选功能) ============
-ENABLE_TTFT=True                         # 启用/禁用 TTFT 测量
+ENABLE_TTFT=False                         # 启用/禁用 TTFT 测量
 TTFT_SAVE_DIR="./ttft_logs"              # TTFT 日志保存目录
-TTFT_SAVE_TO_FILE=True                   # 是否保存到文件
+TTFT_SAVE_TO_FILE=False                   # 是否保存到文件
 
 # ============ 脚本开始 ============
 

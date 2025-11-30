@@ -141,19 +141,6 @@ def llama_sdpa_attn_forward_min_max_gqa_global(
             key_states, value_states = past_key_value.update(
                 key_states, value_states, self.layer_idx, cache_kwargs)
 
-        # Debug output at last layer
-        if self.layer_idx == 27:
-            print("=========================== Min-Max-GQA-Global Cache Info ===========================")
-            key_cache = past_key_value.key_cache
-            value_cache = past_key_value.value_cache
-
-            print(f"KV dtype: {key_cache[0].dtype}")
-            print(f"Key cache layers: {len(key_cache)}")
-            print(f"Value cache layers: {len(value_cache)}")
-
-            for i, (k, v) in enumerate(zip(key_cache, value_cache)):
-                if i == 23:
-                    print(f"[Layer {i}] key shape: {k.shape}, value shape: {v.shape}")
 
     # Repeat KV for GQA
     key_states = repeat_kv(key_states, self.num_key_value_groups)

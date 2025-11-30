@@ -106,8 +106,8 @@ del _temp_os
 
 # 将需要评测的数据集拼接成 datasets 字段
 datasets = [
-    # *needlebench_datasets
-    *LongBench_narrativeqa_datasets,
+    *needlebench_datasets
+    # *LongBench_narrativeqa_datasets,
     # *LongBench_qasper_datasets,
     # *LongBench_multifieldqa_en_datasets,
     # *LongBench_multifieldqa_zh_datasets

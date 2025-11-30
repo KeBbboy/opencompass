@@ -27,6 +27,9 @@ from .topk_gqa_global import apply_topk_gqa_global
 from .center_topk_gqa import apply_center_topk_gqa
 from .first_group_gqa import apply_first_group_gqa
 from .RQA_sum import apply_RQA_sum
+from .RQA_mean import apply_RQA_mean
+from .RQA_mean_softmax import apply_RQA_mean_softmax
+from .RQA_mean_improved import apply_RQA_mean_improved
 
 __all__ = [
     'apply_pyramidkv',
@@ -56,4 +59,7 @@ __all__ = [
     'apply_center_topk_gqa',
     'apply_first_group_gqa',
     'apply_RQA_sum',
+    'apply_RQA_mean',
+    'apply_RQA_mean_softmax',
+    'apply_RQA_mean_improved',
 ]

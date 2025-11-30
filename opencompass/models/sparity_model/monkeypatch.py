@@ -36,6 +36,9 @@ from .patches import (
     apply_center_topk_gqa,
     apply_first_group_gqa,
     apply_RQA_sum,
+    apply_RQA_mean,
+    apply_RQA_mean_softmax,
+    apply_RQA_mean_improved,
 )
 from .patches.common import (
     load_model_with_fallback,
@@ -145,6 +148,9 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False): 
         'center_topk_gqa': apply_center_topk_gqa,
         'first_group_gqa': apply_first_group_gqa,
         'RQA_sum': apply_RQA_sum,
+        'RQA_mean': apply_RQA_mean,
+        'RQA_mean_softmax': apply_RQA_mean_softmax,
+        'RQA_mean_improved': apply_RQA_mean_improved,
     }
     
     if method in method_handlers:
