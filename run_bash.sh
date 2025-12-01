@@ -13,18 +13,18 @@ METHODS=(
     # "full"
 
     # "RQA_sum"
-    # "RQA_mean"
+    "RQA_mean"
     # "RQA_mean_softmax"
 
     # "first_group_gqa"
-    "topk_gqa"
+    # "topk_gqa"
     # "topk_gqa_global"
     # "min_max_gqa"
     
     # "min_max_gqa_global"
     # "min_max_gqa_chunk"
     # "min_max_gqa_chunk_global"
-    "sum_gqa"
+    # "sum_gqa"
     # "sum_gqa_global"
     # "sum_gqa_chunk"
     # "sum_gqa_chunk_global"

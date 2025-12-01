@@ -38,13 +38,13 @@ with read_base():
     from ..datasets.longbench.longbenchrepobench.longbench_repobench_gen import LongBench_repobench_datasets
 
     # # 长输入数据
-    # from .datasets.ruler.ruler_1m_gen import ruler_datasets as ruler_1m_ds
-    # from .datasets.ruler.ruler_4k_gen import ruler_datasets as ruler_4k_ds
-    # from .datasets.ruler.ruler_8k_gen import ruler_datasets as ruler_8k_ds
-    # from .datasets.ruler.ruler_16k_gen import ruler_datasets as ruler_16k_ds
-    # from .datasets.ruler.ruler_32k_gen import ruler_datasets as ruler_32k_ds
-    # from .datasets.ruler.ruler_64k_gen import ruler_datasets as ruler_64k_ds
-    # from .datasets.ruler.ruler_128k_gen import ruler_datasets as ruler_128k_ds
+    from ..datasets.ruler.ruler_1m_gen import ruler_datasets as ruler_1m_ds
+    from ..datasets.ruler.ruler_4k_gen import ruler_datasets as ruler_4k_ds
+    from ..datasets.ruler.ruler_8k_gen import ruler_datasets as ruler_8k_ds
+    from ..datasets.ruler.ruler_16k_gen import ruler_datasets as ruler_16k_ds
+    from ..datasets.ruler.ruler_32k_gen import ruler_datasets as ruler_32k_ds
+    from ..datasets.ruler.ruler_64k_gen import ruler_datasets as ruler_64k_ds
+    from ..datasets.ruler.ruler_128k_gen import ruler_datasets as ruler_128k_ds
 
     # from  .datasets.ruler.ruler_cwe_gen import cwe_datasets as cwe  # CW
 
@@ -106,11 +106,12 @@ del _temp_os
 
 # 将需要评测的数据集拼接成 datasets 字段
 datasets = [
-    *needlebench_datasets
-    # *LongBench_narrativeqa_datasets,
+    # *needlebench_datasets
+    *LongBench_narrativeqa_datasets,
     # *LongBench_qasper_datasets,
     # *LongBench_multifieldqa_en_datasets,
     # *LongBench_multifieldqa_zh_datasets
+    # *ruler_32k_ds
 ]
 
     
@@ -120,8 +121,10 @@ models = [
         type=QwenAttentionConvert,
         # abbr='qwen2.5-14b-instruct-hf',
         # path='Qwen/Qwen2.5-14B-Instruct',
-        abbr='qwen2.5-7b-instruct-hf',
-        path='Qwen/Qwen2.5-7B-Instruct',
+        # abbr='qwen2.5-3b-instruct-hf',
+        # path='Qwen/Qwen2.5-3B-Instruct',
+        abbr='Qwen3-4B-Instruct-2507',
+        path='Qwen/Qwen3-4B-Instruct-2507',
         is_use_sparse=True,
         max_seq_len=32768,
         max_out_len=256,
