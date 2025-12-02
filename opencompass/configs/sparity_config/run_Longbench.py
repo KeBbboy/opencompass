@@ -119,14 +119,12 @@ datasets = [
 models = [
     dict(
         type=QwenAttentionConvert,
-        # abbr='qwen2.5-14b-instruct-hf',
-        # path='Qwen/Qwen2.5-14B-Instruct',
-        # abbr='qwen2.5-3b-instruct-hf',
-        # path='Qwen/Qwen2.5-3B-Instruct',
-        abbr='Qwen3-4B-Instruct-2507',
-        path='Qwen/Qwen3-4B-Instruct-2507',
+        # abbr='Qwen3-30B-A3B',
+        # path='Qwen/Qwen3-30B-A3B',
+        abbr='qwen2.5-7b-instruct-hf',
+        path='Qwen/Qwen2.5-7B-Instruct',
         is_use_sparse=True,
-        max_seq_len=32768,
+        max_seq_len=32768,  # Qwen3-30B-A3B supports 32K context
         max_out_len=256,
         batch_size=1,
         run_cfg=dict(num_gpus=1),

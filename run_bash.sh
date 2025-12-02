@@ -13,8 +13,10 @@ METHODS=(
     # "full"
 
     # "RQA_sum"
-    "RQA_mean"
+    # "RQA_mean"
     # "RQA_mean_softmax"
+
+    "orthogonal_pivot"
 
     # "first_group_gqa"
     # "topk_gqa"
@@ -41,8 +43,8 @@ METHODS=(
 CAPACITIES=(
     # 8192
     # 4096
-    2048
-    1024
+    # 2048
+    # 1024
     512
     256
     # 128

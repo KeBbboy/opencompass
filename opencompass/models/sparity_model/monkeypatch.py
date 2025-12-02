@@ -39,6 +39,7 @@ from .patches import (
     apply_RQA_mean,
     apply_RQA_mean_softmax,
     apply_RQA_mean_improved,
+    apply_orthogonal_pivot,
 )
 from .patches.common import (
     load_model_with_fallback,
@@ -151,6 +152,7 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False): 
         'RQA_mean': apply_RQA_mean,
         'RQA_mean_softmax': apply_RQA_mean_softmax,
         'RQA_mean_improved': apply_RQA_mean_improved,
+        'orthogonal_pivot': apply_orthogonal_pivot,
     }
     
     if method in method_handlers:

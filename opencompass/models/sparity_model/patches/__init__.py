@@ -30,6 +30,7 @@ from .RQA_sum import apply_RQA_sum
 from .RQA_mean import apply_RQA_mean
 from .RQA_mean_softmax import apply_RQA_mean_softmax
 from .RQA_mean_improved import apply_RQA_mean_improved
+from .orthogonal_pivot import apply_orthogonal_pivot
 
 __all__ = [
     'apply_pyramidkv',
@@ -62,4 +63,5 @@ __all__ = [
     'apply_RQA_mean',
     'apply_RQA_mean_softmax',
     'apply_RQA_mean_improved',
+    'apply_orthogonal_pivot',
 ]
