@@ -10,9 +10,11 @@ from transformers.cache_utils import Cache, DynamicCache
 from transformers.models.llama.modeling_llama import (
     apply_rotary_pos_emb,
     logger,
-    repeat_kv,
-    StaticCache
-)
+    repeat_kv)
+try:
+    from transformers.models.llama.modeling_llama import StaticCache
+except ImportError:
+    from transformers import StaticCache
 from transformers.utils import logging
 
 logger = logging.get_logger(__name__)

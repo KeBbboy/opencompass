@@ -119,10 +119,10 @@ datasets = [
 models = [
     dict(
         type=QwenAttentionConvert,
-        # abbr='Qwen3-30B-A3B',
-        # path='Qwen/Qwen3-30B-A3B',
-        abbr='qwen2.5-7b-instruct-hf',
-        path='Qwen/Qwen2.5-7B-Instruct',
+        abbr='Qwen/Qwen3-30B-A3B-Instruct-2507',
+        path='Qwen/Qwen3-30B-A3B-Instruct-2507',
+        # abbr='qwen2.5-7b-instruct-hf',
+        # path='Qwen/Qwen2.5-7B-Instruct',
         is_use_sparse=True,
         max_seq_len=32768,  # Qwen3-30B-A3B supports 32K context
         max_out_len=256,

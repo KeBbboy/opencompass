@@ -11,6 +11,6 @@ def apply_simple_patch(self, path, model_kwargs, forward_func, model_class="llam
     configure_basic_cache(self.model, self.cache_kwargs, method=self.method)
 
     if model_class == "llama":
-        transformers.models.llama.modeling_llama.LlamaSdpaAttention.forward = forward_func
+        transformers.models.llama.modeling_llama.LlamaAttention.forward = forward_func
     elif model_class == "qwen":
-        transformers.models.qwen2.modeling_qwen2.Qwen2SdpaAttention.forward = forward_func
+        transformers.models.qwen2.modeling_qwen2.Qwen2Attention.forward = forward_func

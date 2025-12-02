@@ -21,7 +21,10 @@ from transformers.utils import logging
 import os
 import pandas as pd
 from torch import topk,softmax
-from transformers.models.llama.modeling_llama import StaticCache
+try:
+    from transformers.models.llama.modeling_llama import StaticCache
+except ImportError:
+    from transformers import StaticCache
 
 logger = logging.get_logger(__name__)
 

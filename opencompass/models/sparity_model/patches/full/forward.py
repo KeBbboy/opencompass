@@ -1,166 +1,175 @@
-import math
-import warnings
-from typing import List, Optional, Tuple, Union
-import os
-import time
+"""Forward function for FULL method - based on transformers 4.57.3 API."""
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from transformers.cache_utils import Cache, DynamicCache
-from transformers.models.llama.modeling_llama import (
-    apply_rotary_pos_emb,
-    logger,
-    repeat_kv,
-    StaticCache
-)
-from transformers.utils import logging
+from typing import Optional, Tuple
+from transformers.cache_utils import Cache
+from transformers.models.llama.modeling_llama import apply_rotary_pos_emb, repeat_kv
+from transformers.integrations.sdpa_attention import use_gqa_in_sdpa
+from transformers.utils.deprecation import deprecate_kwarg
+from transformers.utils import logging, is_torch_npu_available
 
+_is_torch_npu_available = is_torch_npu_available()
 logger = logging.get_logger(__name__)
 
 from ..utils.kv_utils import estimate_kv_memory
 
 
-def llama_sdpa_attn_forward_FULL_KV(
+@deprecate_kwarg("past_key_value", new_name="past_key_values", version="4.58")
+def llama_attention_forward_FULL_KV(
     self,
     hidden_states: torch.Tensor,
-    attention_mask: Optional[torch.Tensor] = None,
-    position_ids: Optional[torch.LongTensor] = None,
-    past_key_value: Optional[Cache] = None,
-    output_attentions: bool = False,
-    use_cache: bool = False,
+    position_embeddings: Tuple[torch.Tensor, torch.Tensor],
+    attention_mask: Optional[torch.Tensor],
+    past_key_values: Optional[Cache] = None,
     cache_position: Optional[torch.LongTensor] = None,
-    position_embeddings: Optional[Tuple[
-        torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.45
-) -> Tuple[torch.Tensor, Optional[torch.Tensor],
-           Optional[Tuple[torch.Tensor]]]:
-    if output_attentions:
-        # TODO: Improve this warning with e.g. `model.config.attn_implementation = "manual"` once this is implemented.
-        logger.warning_once(
-            'LlamaModel is using LlamaSdpaAttention, but `torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to the manual attention implementation, '
-            'but specifying the manual implementation will be required from Transformers version v5.0.0 onwards. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
-        )
-        return super().forward(
-            hidden_states=hidden_states,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_value=past_key_value,
-            output_attentions=output_attentions,
-            use_cache=use_cache,
-            cache_position=cache_position,
-            position_embeddings=position_embeddings,
-        )
-    
+    **kwargs,
+) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    """
+    Forward function for FULL KV cache method.
+    Based on transformers 4.57.3 LlamaAttention.forward with added KV memory estimation.
+    """
+    input_shape = hidden_states.shape[:-1]
+    hidden_shape = (*input_shape, -1, self.head_dim)
 
-    bsz, q_len, _ = hidden_states.size()
+    query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+    key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+    value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
-    query_states = self.q_proj(hidden_states)
-    key_states = self.k_proj(hidden_states)
-    value_states = self.v_proj(hidden_states)
+    cos, sin = position_embeddings
+    query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
-    query_states = query_states.view(bsz, q_len, self.num_heads,
-                                     self.head_dim).transpose(1, 2)
-    key_states = key_states.view(bsz, q_len, self.num_key_value_heads,
-                                 self.head_dim).transpose(1, 2)
-    value_states = value_states.view(bsz, q_len, self.num_key_value_heads,
-                                     self.head_dim).transpose(1, 2)
-
-    kv_seq_len = key_states.shape[-2]
-    # if past_key_value is not None:
-    #     kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
-    if past_key_value is not None:
-        if self.layer_idx is None:
-            raise ValueError(
-                f'The cache structure has changed since version v4.36. If you are using {self.__class__.__name__} '
-                'for auto-regressive decoding with k/v caching, please make sure to initialize the attention class '
-                'with a layer index.')
-        
-        if hasattr(self, 'kv_seq_len'):
-            if self.kv_seq_len != 0:
-                kv_seq_len += self.kv_seq_len
-            else:
-                kv_seq_len += past_key_value.get_usable_length(
-                    kv_seq_len, self.layer_idx)
-        else:
-            kv_seq_len += past_key_value.get_usable_length(
-                kv_seq_len, self.layer_idx)
-
-    if position_embeddings is None:
-        logger.warning_once(
-            'The attention layers in this model are transitioning from computing the RoPE embeddings internally '
-            'through `position_ids` (2D tensor with the indexes of the tokens), to using externally computed '
-            '`position_embeddings` (Tuple of tensors, containing cos and sin). In v4.45 `position_ids` will be '
-            'removed and `position_embeddings` will be mandatory.')
-        cos, sin = self.rotary_emb(value_states, position_ids)
-    else:
-        cos, sin = position_embeddings
-
-    query_states, key_states = apply_rotary_pos_emb(query_states, key_states,
-                                                    cos, sin)
-
-    if past_key_value is not None:
+    if past_key_values is not None:
         # sin and cos are specific to RoPE models; cache_position needed for the static cache
-        cache_kwargs = {
-            'sin': sin,
-            'cos': cos,
-            'cache_position': cache_position
-        }
-        if key_states.shape[-2] != 1:
-            # Removed debug prints for performance (layer 23 diagnostics)
-            past_key_value.update(key_states, value_states,
-                                  self.layer_idx, cache_kwargs)
-            if self.layer_idx == 27:
-                # 获取 method 和 max_capacity_prompt 参数
-                method = getattr(self.config, 'method', 'unknown')
+        cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
+        key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx, cache_kwargs)
+
+        # Additional: Estimate KV memory at layer 27
+        if self.layer_idx == 27:
+            method = getattr(self.config, 'method', 'unknown')
+            max_capacity_prompt = None
+            if hasattr(self.config, 'max_capacity_prompt'):
+                max_capacity_prompt = self.config.max_capacity_prompt
+            elif hasattr(self.config, 'cache_kwargs') and 'max_capacity_prompt' in self.config.cache_kwargs:
+                max_capacity_prompt = self.config.cache_kwargs['max_capacity_prompt']
+
+            # For "full" method, don't include max_capacity_prompt in filename
+            if isinstance(method, str) and method.lower() == "full":
                 max_capacity_prompt = None
-                if hasattr(self.config, 'max_capacity_prompt'):
-                    max_capacity_prompt = self.config.max_capacity_prompt
-                elif hasattr(self.config, 'cache_kwargs') and 'max_capacity_prompt' in self.config.cache_kwargs:
-                    max_capacity_prompt = self.config.cache_kwargs['max_capacity_prompt']
 
-                # 如果 method 是 "full"，则不在文件名中添加 max_capacity_prompt
-                if isinstance(method, str) and method.lower() == "full":
-                    max_capacity_prompt = None
+            estimate_kv_memory(past_key_values, method=method, max_capacity_prompt=max_capacity_prompt)
 
-                estimate_kv_memory(past_key_value, method=method, max_capacity_prompt=max_capacity_prompt)
+    # SDPA (Scaled Dot Product Attention) implementation
+    # Handle GQA (Grouped Query Attention) - repeat key/value if needed
+    sdpa_kwargs = {}
+    if hasattr(self, "num_key_value_groups"):
+        if not use_gqa_in_sdpa(attention_mask, key_states):
+            key_states = repeat_kv(key_states, self.num_key_value_groups)
+            value_states = repeat_kv(value_states, self.num_key_value_groups)
         else:
-            key_states, value_states = past_key_value.update(
-                key_states, value_states, self.layer_idx, cache_kwargs)
-       
+            sdpa_kwargs = {"enable_gqa": True}
 
-    key_states = repeat_kv(key_states, self.num_key_value_groups)
-    value_states = repeat_kv(value_states, self.num_key_value_groups)
+    # Adjust attention mask to match key sequence length
+    if attention_mask is not None and attention_mask.ndim == 4:
+        attention_mask = attention_mask[:, :, :, : key_states.shape[-2]]
 
-    causal_mask = attention_mask
-    if attention_mask is not None:
-        causal_mask = causal_mask[:, :, :, :key_states.shape[-2]]
+    # Determine if causal masking should be applied
+    is_causal = query_states.shape[2] > 1 and attention_mask is None and getattr(self, "is_causal", True)
 
-    # SDPA with memory-efficient backend is currently (torch==2.1.2) bugged with non-contiguous inputs with custom attn_mask,
-    # Reference: https://github.com/pytorch/pytorch/issues/112577.
-    if query_states.device.type == 'cuda' and causal_mask is not None:
-        query_states = query_states.contiguous()
-        key_states = key_states.contiguous()
-        value_states = value_states.contiguous()
+    # Convert to bool for JIT tracing
+    if torch.jit.is_tracing() and isinstance(is_causal, torch.Tensor):
+        is_causal = is_causal.item()
 
-    # We dispatch to SDPA's Flash Attention or Efficient kernels via this if statement instead of an
-    # inline conditional assignment to support both torch.compile's `dynamic=True` and `fullgraph=True`
-    is_causal = True if causal_mask is None and q_len > 1 else False
+    # Handle NPU special case (convert attention_mask to bool for FlashAttentionScore)
+    if _is_torch_npu_available:
+        if attention_mask is not None and attention_mask.dtype != torch.bool:
+            attention_mask = torch.logical_not(attention_mask.bool()).to(query_states.device)
 
+    # Apply SDPA
     attn_output = torch.nn.functional.scaled_dot_product_attention(
         query_states,
         key_states,
         value_states,
-        attn_mask=causal_mask,
+        attn_mask=attention_mask,
         dropout_p=self.attention_dropout if self.training else 0.0,
+        scale=self.scaling,
         is_causal=is_causal,
+        **sdpa_kwargs,
     )
 
     attn_output = attn_output.transpose(1, 2).contiguous()
-    attn_output = attn_output.view(bsz, q_len, self.hidden_size)
-
+    attn_output = attn_output.reshape(*input_shape, -1).contiguous()
     attn_output = self.o_proj(attn_output)
-
-    return attn_output, None, past_key_value
-
+    return attn_output, None
 
 
+@deprecate_kwarg("past_key_value", new_name="past_key_values", version="4.58")
+def qwen2_attention_forward_FULL_KV(
+    self,
+    hidden_states: torch.Tensor,
+    position_embeddings: Tuple[torch.Tensor, torch.Tensor],
+    attention_mask: Optional[torch.Tensor],
+    past_key_values: Optional[Cache] = None,
+    cache_position: Optional[torch.LongTensor] = None,
+    **kwargs,
+) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    """
+    Forward function for FULL KV cache method (Qwen2 version).
+    Based on transformers 4.57.3 Qwen2Attention.forward with added KV memory estimation.
+    """
+    input_shape = hidden_states.shape[:-1]
+    hidden_shape = (*input_shape, -1, self.head_dim)
 
+    query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+    key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+    value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+
+    cos, sin = position_embeddings
+    query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+    if past_key_values is not None:
+        # sin and cos are specific to RoPE models; cache_position needed for the static cache
+        cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
+        key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx, cache_kwargs)
+
+    # SDPA (Scaled Dot Product Attention) implementation
+    # Handle GQA (Grouped Query Attention) - repeat key/value if needed
+    sdpa_kwargs = {}
+    if hasattr(self, "num_key_value_groups"):
+        if not use_gqa_in_sdpa(attention_mask, key_states):
+            key_states = repeat_kv(key_states, self.num_key_value_groups)
+            value_states = repeat_kv(value_states, self.num_key_value_groups)
+        else:
+            sdpa_kwargs = {"enable_gqa": True}
+
+    # Adjust attention mask to match key sequence length
+    if attention_mask is not None and attention_mask.ndim == 4:
+        attention_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+
+    # Determine if causal masking should be applied
+    # Note: Qwen2 may use sliding_window, but this is handled by attention_mask
+    is_causal = query_states.shape[2] > 1 and attention_mask is None and getattr(self, "is_causal", True)
+
+    # Convert to bool for JIT tracing
+    if torch.jit.is_tracing() and isinstance(is_causal, torch.Tensor):
+        is_causal = is_causal.item()
+
+    # Handle NPU special case (convert attention_mask to bool for FlashAttentionScore)
+    if _is_torch_npu_available:
+        if attention_mask is not None and attention_mask.dtype != torch.bool:
+            attention_mask = torch.logical_not(attention_mask.bool()).to(query_states.device)
+
+    # Apply SDPA
+    attn_output = torch.nn.functional.scaled_dot_product_attention(
+        query_states,
+        key_states,
+        value_states,
+        attn_mask=attention_mask,
+        dropout_p=self.attention_dropout if self.training else 0.0,
+        scale=self.scaling,
+        is_causal=is_causal,
+        **sdpa_kwargs,
+    )
+
+    attn_output = attn_output.transpose(1, 2).contiguous()
+    attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+    attn_output = self.o_proj(attn_output)
+    return attn_output, None

@@ -31,7 +31,10 @@ from .model_kv_utils import (DynamicCacheSplitHeadFlatten, init_adakv,
                               init_StreamingLLM,init_ALLKV,init_pyramidkv_gqa)
 from .quantization import quantize_kv_int8_per_token, dequantize_kv_int8
 
-from transformers.models.llama.modeling_llama import StaticCache
+try:
+    from transformers.models.llama.modeling_llama import StaticCache
+except ImportError:
+    from transformers import StaticCache
 
 logger = logging.get_logger(__name__)
 

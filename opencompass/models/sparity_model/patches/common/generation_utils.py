@@ -1,7 +1,10 @@
 """Generation utilities for model patching."""
 
 import torch
-from transformers.models.llama.modeling_llama import StaticCache
+try:
+    from transformers.models.llama.modeling_llama import StaticCache
+except ImportError:
+    from transformers import StaticCache
 
 
 def _prepare_4d_causal_attention_mask_with_cache_position(
