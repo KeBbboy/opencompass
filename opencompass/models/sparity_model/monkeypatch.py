@@ -118,6 +118,12 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False): 
     """
     method = self.method
 
+    # Debug: Print method and model type
+    print("\n" + "="*60)
+    print(f"[DEBUG] Applying patches for method: {method}")
+    print(f"[DEBUG] Model type: {'Qwen' if is_qwen else 'Llama'}")
+    print("="*60 + "\n")
+
     # Method dispatch mapping
     method_handlers = {
         'pyramidkv': apply_pyramidkv,
@@ -166,12 +172,13 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False): 
         transformers.models.llama.modeling_llama.LlamaForCausalLM.prepare_inputs_for_generation = \
             prepare_inputs_for_generation_llama_new
 
+        # BUGFIX: Also patch Qwen2 models for all methods (not just full_KIVI)
+        if is_qwen:
+            print(f"[DEBUG] Patching Qwen2ForCausalLM.prepare_inputs_for_generation for method: {method}")
+            transformers.models.qwen2.modeling_qwen2.Qwen2ForCausalLM.prepare_inputs_for_generation = \
+                prepare_inputs_for_generation_llama_new
 
     if method in ['full_KIVI']:
-        # Also patch Qwen2 models
-        transformers.models.qwen2.modeling_qwen2.Qwen2ForCausalLM.prepare_inputs_for_generation = \
-            prepare_inputs_for_generation_llama_new
-
         # Patch Qwen2Model to handle tuple caches from KIVI
         _patch_qwen2_model_for_tuple_cache()
 
@@ -190,22 +197,28 @@ def replace_model(self, path=None, model_kwargs=None,
     # KIVI's CUDA kernels only support FP16, not BFloat16
     model_kwargs['torch_dtype'] = torch.float16
 
-    self.model = load_model_with_fallback(path, model_kwargs)
-    # Configure model settings
+    # Get model type before loading model
     model_type = self.model_type
-    print(f"================{model_type}===================")
 
-    # Debug: Print model device
-    print(f"[DEBUG] Model device after loading: {next(self.model.parameters()).device}")
-    print(f"[DEBUG] model_kwargs: {model_kwargs}")
+    print("\n" + "="*60)
+    print(f"[REPLACE_MODEL] Model type: {model_type}")
+    print(f"[REPLACE_MODEL] Method: {self.method}")
+    print(f"[REPLACE_MODEL] Model path: {path}")
+    print(f"[REPLACE_MODEL] cache_kwargs: {self.cache_kwargs}")
+    print("="*60 + "\n")
 
+    # IMPORTANT: Apply patches BEFORE loading model
+    # This ensures the patched forward functions are used when model is instantiated
     if "qwen" in model_type.lower():
         _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=True)
     elif "llama" in model_type.lower():
         _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False)
 
-    # Debug: Print model device after patching
-    print(f"[DEBUG] Model device after patching: {next(self.model.parameters()).device}")
+    # Load model AFTER patches are applied
+    self.model = load_model_with_fallback(path, model_kwargs)
+
+    # Debug: Print model device after loading
+    print(f"[DEBUG] Model device after loading: {next(self.model.parameters()).device}")
 
     # Configure model settings (after patches to avoid being overwritten)
     self.model.config.window_size = self.cache_kwargs.get('window_size', 64)

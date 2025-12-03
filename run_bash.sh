@@ -10,10 +10,10 @@ CONFIG_FILE="opencompass/configs/sparity_config/run_Longbench.py"
 
 # 定义要测试的方法
 METHODS=(
-    "full"
+    # "full"
 
     # "RQA_sum"
-    # "RQA_mean"
+    "RQA_mean"
     # "RQA_mean_softmax"
 
     # "orthogonal_pivot"

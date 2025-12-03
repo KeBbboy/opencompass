@@ -46,32 +46,24 @@ with read_base():
     from ..datasets.ruler.ruler_64k_gen import ruler_datasets as ruler_64k_ds
     from ..datasets.ruler.ruler_128k_gen import ruler_datasets as ruler_128k_ds
 
-    # from  .datasets.ruler.ruler_cwe_gen import cwe_datasets as cwe  # CW
+    # from ..datasets.infinitebench.infinitebenchcodedebug.infinitebench_codedebug_gen import InfiniteBench_codedebug_datasets
+    # from ..datasets.infinitebench.infinitebenchcoderun.infinitebench_coderun_gen import InfiniteBench_coderun_datasets
+    # from ..datasets.infinitebench.infinitebenchendia.infinitebench_endia_gen import InfiniteBench_endia_datasets
+    # from ..datasets.infinitebench.infinitebenchenmc.infinitebench_enmc_gen import InfiniteBench_enmc_datasets
+    # from ..datasets.infinitebench.infinitebenchenqa.infinitebench_enqa_gen import InfiniteBench_enqa_datasets
+    from ..datasets.infinitebench.infinitebenchensum.infinitebench_ensum_gen import InfiniteBench_ensum_datasets
+    from ..datasets.infinitebench.infinitebenchmathcalc.infinitebench_mathcalc_gen import InfiniteBench_mathcalc_datasets
+    # from ..datasets.infinitebench.infinitebenchmathfind.infinitebench_mathfind_gen import InfiniteBench_mathfind_datasets
+    # from ..datasets.infinitebench.infinitebenchretrievekv.infinitebench_retrievekv_gen import InfiniteBench_retrievekv_datasets
+    # from ..datasets.infinitebench.infinitebenchretrievenumber.infinitebench_retrievenumber_gen import InfiniteBench_retrievenumber_datasets
+    # from ..datasets.infinitebench.infinitebenchretrievepasskey.infinitebench_retrievepasskey_gen import InfiniteBench_retrievepasskey_datasets
+    # from ..datasets.infinitebench.infinitebenchzhqa.infinitebench_zhqa_gen import InfiniteBench_zhqa_datasets
 
-    # =====================32k ========================
-    # from .datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_2needle_en_datasets as needlebench_multi_2needle_en_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_3needle_en_datasets as needlebench_multi_3needle_en_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_4needle_en_datasets as needlebench_multi_4needle_en_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_5needle_en_datasets as needlebench_multi_5needle_en_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_2needle_zh_datasets as needlebench_multi_2needle_zh_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_3needle_zh_datasets as needlebench_multi_3needle_zh_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_4needle_zh_datasets as needlebench_multi_4needle_zh_datasets
-    # from ..datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_5needle_zh_datasets as needlebench_multi_5needle_zh_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_single_32k import needlebench_en_datasets as needlebench_origin_en_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_single_32k import needlebench_zh_datasets as needlebench_origin_zh_datasets
-    # from ..datasets.needlebench.needlebench_32k.needlebench_multi_retrieval_32k import needlebench_en_datasets as needlebench_parallel_en_datasets
-    # from ..datasets.needlebench.needlebench_32k.needlebench_multi_retrieval_32k import needlebench_zh_datasets as needlebench_parallel_zh_datasets
+    from ..datasets.livecodebench.livecodebench_gen_b2b0fd import LCB_datasets  # noqa: F401, F403
+    from ..datasets.livecodebench.livecodebench_v6_academic import LCB_datasets as LCB_v6_datasets  # noqa: F401, F403
 
-    # from .datasets.livecodebench.livecodebench_gen_a4f90b import LCB_datasets 
-    
-    # from .datasets.bbeh.bbeh_gen import bbeh_datasets  
-
-    # from .datasets.livereasonbench.livereasonbench_gen_f990de import livereasonbench_datasets
-
-
-
-    # from ..datasets.infinitebench.infinitebench import infinitebench_datasets
-    # from ..datasets.infinitebench.infinitebenchensum.infinitebench_ensum_gen import InfiniteBench_ensum_datasets
+    # ===== Software Engineering =====
+    from ..datasets.swebench.swebench_gen import SWEBench_datasets  # noqa: F401, F403
 
 needlebench_datasets = sum((v for k, v in locals().items() if k.endswith('_datasets')), [])
 
@@ -112,6 +104,7 @@ datasets = [
     # *LongBench_multifieldqa_en_datasets,
     # *LongBench_multifieldqa_zh_datasets
     # *ruler_32k_ds
+    # *LCB_v6_datasets  # LiveCodeBench v6
 ]
 
     

@@ -16,7 +16,10 @@ try:
 except ImportError:
     from transformers import StaticCache
 from transformers.utils import logging
+from transformers.integrations.sdpa_attention import use_gqa_in_sdpa
+from transformers.utils import is_torch_npu_available
 
+_is_torch_npu_available = is_torch_npu_available()
 logger = logging.get_logger(__name__)
 
 # Import local init function
@@ -159,5 +162,171 @@ def llama_sdpa_attn_forward_RQA_mean(
     return attn_output, None, past_key_value
 
 
+def qwen2_attention_forward_RQA_mean(
+    self,
+    hidden_states: torch.Tensor,
+    position_embeddings: Tuple[torch.Tensor, torch.Tensor],
+    attention_mask: Optional[torch.Tensor],
+    past_key_values: Optional[Cache] = None,
+    cache_position: Optional[torch.LongTensor] = None,
+    **kwargs,
+) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    init_RQA_mean(self)
+
+    input_shape = hidden_states.shape[:-1]
+    hidden_shape = (*input_shape, -1, self.head_dim)
+
+    query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+    key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+    value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+
+    cos, sin = position_embeddings
+    query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+    if past_key_values is not None:
+        cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
+
+        if key_states.shape[-2] > 1:
+            key_states_compress, value_states_compress = self.kv_cluster.update_kv(
+                key_states, query_states, value_states, attention_mask,
+                self.num_key_value_groups
+            )
+            key_states, value_states = past_key_values.update(
+                key_states_compress, value_states_compress, self.layer_idx, cache_kwargs
+            )
+
+            if self.layer_idx == 27:
+                method = getattr(self.config, 'method', 'unknown')
+                max_capacity_prompt = None
+                if hasattr(self.config, 'max_capacity_prompt'):
+                    max_capacity_prompt = self.config.max_capacity_prompt
+                elif hasattr(self.config, 'cache_kwargs') and 'max_capacity_prompt' in self.config.cache_kwargs:
+                    max_capacity_prompt = self.config.cache_kwargs['max_capacity_prompt']
+                if isinstance(method, str) and method.lower() == "full":
+                    max_capacity_prompt = None
+                estimate_kv_memory(past_key_values, method=method, max_capacity_prompt=max_capacity_prompt)
+        else:
+            key_states, value_states = past_key_values.update(
+                key_states, value_states, self.layer_idx, cache_kwargs
+            )
+
+    sdpa_kwargs = {}
+    if hasattr(self, "num_key_value_groups"):
+        if not use_gqa_in_sdpa(attention_mask, key_states):
+            key_states = repeat_kv(key_states, self.num_key_value_groups)
+            value_states = repeat_kv(value_states, self.num_key_value_groups)
+        else:
+            sdpa_kwargs = {"enable_gqa": True}
+
+    if attention_mask is not None and attention_mask.ndim == 4:
+        attention_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+
+    is_causal = query_states.shape[2] > 1 and attention_mask is None and getattr(self, "is_causal", True)
+
+    if torch.jit.is_tracing() and isinstance(is_causal, torch.Tensor):
+        is_causal = is_causal.item()
+
+    if _is_torch_npu_available:
+        if attention_mask is not None and attention_mask.dtype != torch.bool:
+            attention_mask = torch.logical_not(attention_mask.bool()).to(query_states.device)
+
+    attn_output = torch.nn.functional.scaled_dot_product_attention(
+        query_states,
+        key_states,
+        value_states,
+        attn_mask=attention_mask,
+        dropout_p=self.attention_dropout if self.training else 0.0,
+        scale=self.scaling,
+        is_causal=is_causal,
+        **sdpa_kwargs,
+    )
+
+    attn_output = attn_output.transpose(1, 2).contiguous()
+    attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+    attn_output = self.o_proj(attn_output)
+    return attn_output, None
 
 
+def qwen3moe_attention_forward_RQA_mean(
+    self,
+    hidden_states: torch.Tensor,
+    position_embeddings: Tuple[torch.Tensor, torch.Tensor],
+    attention_mask: Optional[torch.Tensor],
+    past_key_values: Optional[Cache] = None,
+    cache_position: Optional[torch.LongTensor] = None,
+    **kwargs,
+) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    init_RQA_mean(self)
+
+    input_shape = hidden_states.shape[:-1]
+    hidden_shape = (*input_shape, -1, self.head_dim)
+
+    query_states = self.q_norm(self.q_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+    key_states = self.k_norm(self.k_proj(hidden_states).view(hidden_shape)).transpose(1, 2)
+    value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+
+    cos, sin = position_embeddings
+    query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+    if past_key_values is not None:
+        cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
+
+        if key_states.shape[-2] > 1:
+            key_states_compress, value_states_compress = self.kv_cluster.update_kv(
+                key_states, query_states, value_states, attention_mask,
+                self.num_key_value_groups
+            )
+            key_states, value_states = past_key_values.update(
+                key_states_compress, value_states_compress, self.layer_idx, cache_kwargs
+            )
+
+            if self.layer_idx == 27:
+                method = getattr(self.config, 'method', 'unknown')
+                max_capacity_prompt = None
+                if hasattr(self.config, 'max_capacity_prompt'):
+                    max_capacity_prompt = self.config.max_capacity_prompt
+                elif hasattr(self.config, 'cache_kwargs') and 'max_capacity_prompt' in self.config.cache_kwargs:
+                    max_capacity_prompt = self.config.cache_kwargs['max_capacity_prompt']
+                if isinstance(method, str) and method.lower() == "full":
+                    max_capacity_prompt = None
+                estimate_kv_memory(past_key_values, method=method, max_capacity_prompt=max_capacity_prompt)
+        else:
+            key_states, value_states = past_key_values.update(
+                key_states, value_states, self.layer_idx, cache_kwargs
+            )
+
+    sdpa_kwargs = {}
+    if hasattr(self, "num_key_value_groups"):
+        if not use_gqa_in_sdpa(attention_mask, key_states):
+            key_states = repeat_kv(key_states, self.num_key_value_groups)
+            value_states = repeat_kv(value_states, self.num_key_value_groups)
+        else:
+            sdpa_kwargs = {"enable_gqa": True}
+
+    if attention_mask is not None and attention_mask.ndim == 4:
+        attention_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+
+    is_causal = query_states.shape[2] > 1 and attention_mask is None and getattr(self, "is_causal", True)
+
+    if torch.jit.is_tracing() and isinstance(is_causal, torch.Tensor):
+        is_causal = is_causal.item()
+
+    if _is_torch_npu_available:
+        if attention_mask is not None and attention_mask.dtype != torch.bool:
+            attention_mask = torch.logical_not(attention_mask.bool()).to(query_states.device)
+
+    attn_output = torch.nn.functional.scaled_dot_product_attention(
+        query_states,
+        key_states,
+        value_states,
+        attn_mask=attention_mask,
+        dropout_p=self.attention_dropout if self.training else 0.0,
+        scale=self.scaling,
+        is_causal=is_causal,
+        **sdpa_kwargs,
+    )
+
+    attn_output = attn_output.transpose(1, 2).contiguous()
+    attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+    attn_output = self.o_proj(attn_output)
+    return attn_output, None

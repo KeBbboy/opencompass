@@ -41,7 +41,7 @@ lcb_code_generation_infer_cfg = dict(
         )
     ),
     retriever=dict(type=ZeroRetriever),
-    inferencer=dict(type=GenInferencer)
+    inferencer=dict(type=GenInferencer, max_out_len=1024)
 )
 
 lcb_code_generation_eval_cfg = dict(
@@ -94,7 +94,7 @@ lcb_code_execution_infer_cfg = dict(
         )
     ),
     retriever=dict(type=ZeroRetriever),
-    inferencer=dict(type=GenInferencer)
+    inferencer=dict(type=GenInferencer, max_out_len=1024)
 )
 
 lcb_code_execution_eval_cfg = dict(
@@ -142,7 +142,7 @@ lcb_test_output_infer_cfg = dict(
         )
     ),
     retriever=dict(type=ZeroRetriever),
-    inferencer=dict(type=GenInferencer)
+    inferencer=dict(type=GenInferencer, max_out_len=1024)
 )
 
 lcb_test_output_eval_cfg = dict(

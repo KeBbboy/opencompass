@@ -1,16 +1,31 @@
 """Generic simple patch implementation for methods that only need forward function replacement."""
 
 import transformers
-from .utils import load_model_with_fallback, configure_basic_cache
 
 
 def apply_simple_patch(self, path, model_kwargs, forward_func, model_class="llama"):
     """Apply a simple forward function patch for methods like PyramidKV, StreamingLLM, etc."""
-    # Note: Model is already loaded in replace_model(), so we don't reload it here
-    # self.model = load_model_with_fallback(path, model_kwargs)
-    configure_basic_cache(self.model, self.cache_kwargs, method=self.method)
+    # Note: This function is called BEFORE the model is loaded (see monkeypatch.py line 210-218)
+    # Model configuration is done in replace_model() after the model is loaded
+    # So we only patch the transformers classes here, not configure the model instance
+
+    print("\n" + "="*60)
+    print(f"[SIMPLE_PATCH] Patching {model_class} attention forward function")
+    print(f"[SIMPLE_PATCH] Method: {self.method}")
+    print("="*60 + "\n")
 
     if model_class == "llama":
         transformers.models.llama.modeling_llama.LlamaAttention.forward = forward_func
+        print(f"[SIMPLE_PATCH] Patched LlamaAttention.forward")
     elif model_class == "qwen":
+        # Patch both Qwen2 and Qwen3MoE attention classes
         transformers.models.qwen2.modeling_qwen2.Qwen2Attention.forward = forward_func
+        print(f"[SIMPLE_PATCH] Patched Qwen2Attention.forward")
+
+        # Also patch Qwen3MoE models
+        try:
+            import transformers.models.qwen3_moe.modeling_qwen3_moe as qwen3_moe
+            qwen3_moe.Qwen3MoeAttention.forward = forward_func
+            print(f"[SIMPLE_PATCH] Patched Qwen3MoeAttention.forward")
+        except (ImportError, AttributeError) as e:
+            print(f"[SIMPLE_PATCH] Note: Qwen3MoeAttention not available (this is OK if not using MoE model): {e}")

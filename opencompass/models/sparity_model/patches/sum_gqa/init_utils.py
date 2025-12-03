@@ -166,7 +166,17 @@ def init_sum_gqa(self):
             self.config.pooling = 'maxpool'
         if not hasattr(self.config, 'merge'):
             self.config.merge = None
-    
+
+    print("\n" + "="*60)
+    print("[INIT] Initializing sum_gqa KV cluster")
+    print(f"[INIT] window_size: {self.config.window_size}")
+    print(f"[INIT] max_capacity_prompt: {self.config.max_capacity_prompt}")
+    print(f"[INIT] ratio: 0.4 (hardcoded - should be {self.config.ratio})")
+    print(f"[INIT] kernel_size: 7 (hardcoded - should be {self.config.kernel_size})")
+    print(f"[INIT] pooling: {self.config.pooling}")
+    print(f"[INIT] merge: {self.config.merge}")
+    print("="*60 + "\n")
+
     self.kv_cluster = SnapKVCluster_gqa(
         window_size=self.config.window_size,
         max_capacity_prompt=self.config.max_capacity_prompt,
