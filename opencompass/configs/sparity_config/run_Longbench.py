@@ -37,41 +37,54 @@ with read_base():
     from ..datasets.longbench.longbenchlcc.longbench_lcc_gen import LongBench_lcc_datasets
     from ..datasets.longbench.longbenchrepobench.longbench_repobench_gen import LongBench_repobench_datasets
 
-    # # 长输入数据
-    # from .datasets.ruler.ruler_1m_gen import ruler_datasets as ruler_1m_ds
-    # from .datasets.ruler.ruler_4k_gen import ruler_datasets as ruler_4k_ds
-    # from .datasets.ruler.ruler_8k_gen import ruler_datasets as ruler_8k_ds
-    # from .datasets.ruler.ruler_16k_gen import ruler_datasets as ruler_16k_ds
-    # from .datasets.ruler.ruler_32k_gen import ruler_datasets as ruler_32k_ds
-    # from .datasets.ruler.ruler_64k_gen import ruler_datasets as ruler_64k_ds
-    # from .datasets.ruler.ruler_128k_gen import ruler_datasets as ruler_128k_ds
+    # # # 长输入数据
+    # from ..datasets.ruler.ruler_1m_gen import ruler_datasets as ruler_1m_ds
+    # from ..datasets.ruler.ruler_4k_gen import ruler_datasets as ruler_4k_ds
+    # from ..datasets.ruler.ruler_8k_gen import ruler_datasets as ruler_8k_ds
+    # from ..datasets.ruler.ruler_16k_gen import ruler_datasets as ruler_16k_ds
+    # from ..datasets.ruler.ruler_32k_gen import ruler_datasets as ruler_32k_ds
+    # from ..datasets.ruler.ruler_64k_gen import ruler_datasets as ruler_64k_ds
+    # from ..datasets.ruler.ruler_128k_gen import ruler_datasets as ruler_128k_ds
 
-    # from  .datasets.ruler.ruler_cwe_gen import cwe_datasets as cwe  # CW
-
-    # =====================32k ========================
-    # from .datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_2needle_en_datasets as needlebench_multi_2needle_en_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_3needle_en_datasets as needlebench_multi_3needle_en_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_4needle_en_datasets as needlebench_multi_4needle_en_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_5needle_en_datasets as needlebench_multi_5needle_en_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_2needle_zh_datasets as needlebench_multi_2needle_zh_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_3needle_zh_datasets as needlebench_multi_3needle_zh_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_4needle_zh_datasets as needlebench_multi_4needle_zh_datasets
-    # from ..datasets.needlebench.needlebench_32k.needlebench_multi_reasoning_32k import needlebench_5needle_zh_datasets as needlebench_multi_5needle_zh_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_single_32k import needlebench_en_datasets as needlebench_origin_en_datasets
-    # from .datasets.needlebench.needlebench_32k.needlebench_single_32k import needlebench_zh_datasets as needlebench_origin_zh_datasets
-    # from ..datasets.needlebench.needlebench_32k.needlebench_multi_retrieval_32k import needlebench_en_datasets as needlebench_parallel_en_datasets
-    # from ..datasets.needlebench.needlebench_32k.needlebench_multi_retrieval_32k import needlebench_zh_datasets as needlebench_parallel_zh_datasets
-
-    # from .datasets.livecodebench.livecodebench_gen_a4f90b import LCB_datasets 
-    
-    # from .datasets.bbeh.bbeh_gen import bbeh_datasets  
-
-    # from .datasets.livereasonbench.livereasonbench_gen_f990de import livereasonbench_datasets
-
-
-
-    # from ..datasets.infinitebench.infinitebench import infinitebench_datasets
+    # # ===== InfiniteBench Long Context Code Tasks =====
+    # from ..datasets.infinitebench.infinitebenchcodedebug.infinitebench_codedebug_gen import InfiniteBench_codedebug_datasets  # ~114.7K tokens avg
+    # from ..datasets.infinitebench.infinitebenchcoderun.infinitebench_coderun_gen import InfiniteBench_coderun_datasets  # ~75.2K tokens avg
+    # # from ..datasets.infinitebench.infinitebenchendia.infinitebench_endia_gen import InfiniteBench_endia_datasets
+    # # from ..datasets.infinitebench.infinitebenchenmc.infinitebench_enmc_gen import InfiniteBench_enmc_datasets
+    # # from ..datasets.infinitebench.infinitebenchenqa.infinitebench_enqa_gen import InfiniteBench_enqa_datasets
     # from ..datasets.infinitebench.infinitebenchensum.infinitebench_ensum_gen import InfiniteBench_ensum_datasets
+    # from ..datasets.infinitebench.infinitebenchmathcalc.infinitebench_mathcalc_gen import InfiniteBench_mathcalc_datasets
+    # from ..datasets.infinitebench.infinitebenchmathfind.infinitebench_mathfind_gen import InfiniteBench_mathfind_datasets
+    # from ..datasets.infinitebench.infinitebenchretrievekv.infinitebench_retrievekv_gen import InfiniteBench_retrievekv_datasets
+    # from ..datasets.infinitebench.infinitebenchretrievenumber.infinitebench_retrievenumber_gen import InfiniteBench_retrievenumber_datasets
+    # from ..datasets.infinitebench.infinitebenchretrievepasskey.infinitebench_retrievepasskey_gen import InfiniteBench_retrievepasskey_datasets
+    # from ..datasets.infinitebench.infinitebenchzhqa.infinitebench_zhqa_gen import InfiniteBench_zhqa_datasets
+
+    # from ..datasets.livecodebench.livecodebench_gen_b2b0fd import LCB_datasets  # noqa: F401, F403
+    # from ..datasets.livecodebench.livecodebench_v6_academic import LCB_datasets as LCB_v6_datasets  # noqa: F401, F403
+
+    # # ===== Software Engineering (Repository-level Code Understanding) =====
+    # from ..datasets.swebench.swebench_gen import SWEBench_datasets  # noqa: F401, F403
+
+    # from ..datasets.apps.apps_gen_c7893a import APPS_datasets  # noqa: F401, F403
+
+    # # ===== Scientific Computing =====
+    # # 长度大于4K
+    # from ..datasets.scicode.scicode_gen import SciCode_datasets  # noqa: F401, F403
+
+    # # ===== HumanEval Series =====
+    # from ..datasets.humaneval.humaneval_gen_8e312c import humaneval_datasets
+    # from ..datasets.humaneval_plus.humaneval_plus_gen_8e312c import humaneval_plus_datasets
+
+    # from ..datasets.bigcodebench.bigcodebench_hard_instruct_gen import bigcodebench_hard_instruct_datasets
+    # from ..datasets.bigcodebench.bigcodebench_hard_complete_gen import bigcodebench_hard_complete_datasets
+
+    # # ===== MBPP Series =====
+    # from ..datasets.mbpp.mbpp_gen import mbpp_datasets
+    # from ..datasets.mbpp_plus.mbpp_plus_gen import mbpp_plus_datasets
+    # from ..datasets.mbpp_pro.mbpp_pro_gen import mbpppro_datasets
+    # from ..datasets.mbpp_cn.mbpp_cn_gen import mbpp_cn_datasets
+
 
 needlebench_datasets = sum((v for k, v in locals().items() if k.endswith('_datasets')), [])
 
@@ -83,22 +96,26 @@ import os as _temp_os
 SPARITY_METHOD = _temp_os.getenv('SPARITY_METHOD', 'snapkv_global')
 MAX_CAPACITY_PROMPT = int(_temp_os.getenv('MAX_CAPACITY_PROMPT', '512'))
 
-# KIVI-specific parameters
-KIVI_K_BITS = int(_temp_os.getenv('KIVI_K_BITS', '2'))
-KIVI_V_BITS = int(_temp_os.getenv('KIVI_V_BITS', '2'))
-KIVI_GROUP_SIZE = int(_temp_os.getenv('KIVI_GROUP_SIZE', '32'))
-KIVI_RESIDUAL_LENGTH = int(_temp_os.getenv('KIVI_RESIDUAL_LENGTH', '32'))
-
 # TTFT measurement parameters
 ENABLE_TTFT = _temp_os.getenv('ENABLE_TTFT', 'False').lower() in ('true', '1', 'yes')
 TTFT_SAVE_DIR = _temp_os.getenv('TTFT_SAVE_DIR', './ttft_logs')
 TTFT_SAVE_TO_FILE = _temp_os.getenv('TTFT_SAVE_TO_FILE', 'True').lower() in ('true', '1', 'yes')
+
+# Ablation study parameters
+ABLATION_LAYER = int(_temp_os.getenv('ABLATION_LAYER', '-1'))
+ABLATION_RATIO = float(_temp_os.getenv('ABLATION_RATIO', '0.5'))
+
+# Attention Entropy Logging parameters
+ENABLE_ENTROPY_LOGGING = _temp_os.getenv('ENABLE_ENTROPY_LOGGING', 'False').lower() in ('true', '1', 'yes')
+ENTROPY_SAVE_DIR = _temp_os.getenv('ENTROPY_SAVE_DIR', './attention_entropy_logs')
 
 print("\n" + "="*60)
 print("[Config File] Final values after reading:")
 print(f"  ENABLE_TTFT = {ENABLE_TTFT}")
 print(f"  TTFT_SAVE_DIR = {TTFT_SAVE_DIR}")
 print(f"  TTFT_SAVE_TO_FILE = {TTFT_SAVE_TO_FILE}")
+print(f"  ENABLE_ENTROPY_LOGGING = {ENABLE_ENTROPY_LOGGING}")
+print(f"  ENTROPY_SAVE_DIR = {ENTROPY_SAVE_DIR}")
 print("="*60 + "\n")
 
 del _temp_os  
@@ -111,6 +128,8 @@ datasets = [
     # *LongBench_qasper_datasets,
     # *LongBench_multifieldqa_en_datasets,
     # *LongBench_multifieldqa_zh_datasets
+    # *ruler_32k_ds
+
 ]
 
     
@@ -118,12 +137,10 @@ datasets = [
 models = [
     dict(
         type=QwenAttentionConvert,
-        # abbr='qwen2.5-14b-instruct-hf',
-        # path='Qwen/Qwen2.5-14B-Instruct',
         abbr='qwen2.5-7b-instruct-hf',
         path='Qwen/Qwen2.5-7B-Instruct',
         is_use_sparse=True,
-        max_seq_len=32768,
+        max_seq_len=40000,  
         max_out_len=256,
         batch_size=1,
         run_cfg=dict(num_gpus=1),
@@ -133,9 +150,13 @@ models = [
                 window_size=64,
                 max_capacity_prompt=MAX_CAPACITY_PROMPT,
                 chunk_length = 8,
-                topk_heads=2,  # 在这里设置 k 值
-                # NOTE: For ChunkKV method, ensure (max_capacity_prompt - window_size) % chunk_length == 0
-                # Current: (512 - 64) % 8 = 448 % 8 = 0 ✓
+                topk_heads=2,  # 在这里设置 topk_gqa 算法的 k 值
+
+
+                # RQA_per_head_topk 参数
+                target_layers=[0, 1] + list(range(5, 28)),  # 除了2、3、4层外都使用L2加权，只有2、3、4层使用per-head SnapKV
+                weight_temperature=0.3,  # L2范数加权的温度参数
+
 
                 # Visualization parameters
                 save_indices=False,           # 启用索引保存
@@ -143,13 +164,6 @@ models = [
                 save_query_states=False,     # 启用query states保存（window部分）
                 visualize_layer=None,        # 保存所有层（0=只保存第0层）
                 max_samples_to_save=3,      # 保存前10个样本
-        ),
-        kivi_kwargs=dict(
-            # KIVI-specific parameters (only used when method='full_KIVI')
-            k_bits=KIVI_K_BITS,              # Key quantization bits (1-8)
-            v_bits=KIVI_V_BITS,              # Value quantization bits (1-8)
-            group_size=KIVI_GROUP_SIZE,         # Quantization group size
-            residual_length=KIVI_RESIDUAL_LENGTH,   # Number of recent tokens kept in full precision
         ),
 
         # TTFT measurement configuration (完全解耦，不影响原有逻辑)

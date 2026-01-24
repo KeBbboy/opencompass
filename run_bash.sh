@@ -7,6 +7,8 @@
 # ============ 配置参数 ============
 GPU_ID=0
 CONFIG_FILE="opencompass/configs/sparity_config/run_Longbench.py"
+export ENABLE_ENTROPY_BASED_CAPACITY=True
+export HF_ENDPOINT=https://hf-mirror.com
 
 # 定义要测试的方法
 METHODS=(
@@ -15,36 +17,26 @@ METHODS=(
     # "RQA_sum"
     # "RQA_mean"
     # "RQA_mean_softmax"
+    # "RQA_l2weighted_ablation"
+    "RQA_per_head_topk"
 
-    # "first_group_gqa"
-    "topk_gqa"
-    # "topk_gqa_global"
+    # "topk_gqa"
     # "min_max_gqa"
-    
-    # "min_max_gqa_global"
-    # "min_max_gqa_chunk"
-    # "min_max_gqa_chunk_global"
-    "sum_gqa"
-    # "sum_gqa_global"
-    # "sum_gqa_chunk"
-    # "sum_gqa_chunk_global"
-
+    # "sum_gqa"
     # "windowkv"
     # "windowkv_gqa"
-
     # "snapkv"
     # "pyramidkv"
-    # "pyramidkv_gqa"
 )
 
 # 定义要测试的 max_capacity_prompt 值
 CAPACITIES=(
     # 8192
     # 4096
-    2048
-    1024
+    # 2048
+    # 1024
     512
-    256
+    # 256
     # 128
 )
 
@@ -58,6 +50,9 @@ DTYPES=(
 ENABLE_TTFT=False                         # 启用/禁用 TTFT 测量
 TTFT_SAVE_DIR="./ttft_logs"              # TTFT 日志保存目录
 TTFT_SAVE_TO_FILE=False                   # 是否保存到文件
+
+
+
 
 # ============ 脚本开始 ============
 
@@ -81,40 +76,65 @@ echo "=========================================="
 for method in "${METHODS[@]}"; do
     for capacity in "${CAPACITIES[@]}"; do
         for dtype in "${DTYPES[@]}"; do
-            echo ""
-            echo "=========================================="
-            echo "运行实验: method=$method, capacity=$capacity, dtype=$dtype"
-            echo "时间: $(date '+%Y-%m-%d %H:%M:%S')"
-            echo "=========================================="
-
-            # 运行实验（通过环境变量传递参数）
-            LOG_FILE="$LOG_DIR/${method}_capacity${capacity}_${dtype}.log"
-            echo "日志文件: $LOG_FILE"
-
-            # 设置 TTFT 保存路径（包含实验参数信息）
-            TTFT_EXP_DIR="${TTFT_SAVE_DIR}/${method}_capacity${capacity}"
-
-            CUDA_VISIBLE_DEVICES=$GPU_ID \
-            SPARITY_METHOD=$method \
-            MAX_CAPACITY_PROMPT=$capacity \
-            TORCH_DTYPE=$dtype \
-            RUN_TIMESTAMP=$TIMESTAMP \
-            ENABLE_TTFT=$ENABLE_TTFT \
-            TTFT_SAVE_DIR=$TTFT_EXP_DIR \
-            TTFT_SAVE_TO_FILE=$TTFT_SAVE_TO_FILE \
-            python run.py "$CONFIG_FILE" --debug 2>&1 | tee "$LOG_FILE"
-
-            EXIT_CODE=${PIPESTATUS[0]}
-            if [ $EXIT_CODE -eq 0 ]; then
-                echo "✓ 实验成功完成"
-                echo "SUCCESS" >> "$LOG_FILE"
+            # 如果是消融方法，遍历所有消融层；否则使用 -1（不消融）
+            if [[ "$method" == *"ablation"* ]]; then
+                LAYERS_TO_RUN=("${ABLATION_LAYERS[@]}")
             else
-                echo "✗ 实验失败 (退出码: $EXIT_CODE)"
-                echo "FAILED: exit code $EXIT_CODE" >> "$LOG_FILE"
+                LAYERS_TO_RUN=(-1)
             fi
 
-            # 休息几秒，让 GPU 冷却
-            sleep 5
+            for ablation_layer in "${LAYERS_TO_RUN[@]}"; do
+                echo ""
+                echo "=========================================="
+                if [ $ablation_layer -eq -1 ]; then
+                    echo "运行实验: method=$method, capacity=$capacity, dtype=$dtype"
+                else
+                    echo "运行实验: method=$method, capacity=$capacity, dtype=$dtype, ablation_layer=$ablation_layer"
+                fi
+                echo "时间: $(date '+%Y-%m-%d %H:%M:%S')"
+                echo "=========================================="
+
+                # 运行实验（通过环境变量传递参数）
+                if [ $ablation_layer -eq -1 ]; then
+                    LOG_FILE="$LOG_DIR/${method}_capacity${capacity}_${dtype}.log"
+                else
+                    LOG_FILE="$LOG_DIR/${method}_capacity${capacity}_${dtype}_layer${ablation_layer}.log"
+                fi
+                echo "日志文件: $LOG_FILE"
+
+                # 设置 TTFT 保存路径（包含实验参数信息）
+                if [ $ablation_layer -eq -1 ]; then
+                    TTFT_EXP_DIR="${TTFT_SAVE_DIR}/${method}_capacity${capacity}"
+                else
+                    TTFT_EXP_DIR="${TTFT_SAVE_DIR}/${method}_capacity${capacity}_layer${ablation_layer}"
+                fi
+
+                CUDA_VISIBLE_DEVICES=$GPU_ID \
+                SPARITY_METHOD=$method \
+                MAX_CAPACITY_PROMPT=$capacity \
+                TORCH_DTYPE=$dtype \
+                RUN_TIMESTAMP=$TIMESTAMP \
+                ENABLE_TTFT=$ENABLE_TTFT \
+                TTFT_SAVE_DIR=$TTFT_EXP_DIR \
+                TTFT_SAVE_TO_FILE=$TTFT_SAVE_TO_FILE \
+                ENABLE_ENTROPY_LOGGING=$ENABLE_ENTROPY_LOGGING \
+                ENTROPY_SAVE_DIR=$ENTROPY_SAVE_DIR \
+                ABLATION_LAYER=$ablation_layer \
+                ABLATION_RATIO=$ABLATION_RATIO \
+                python run.py "$CONFIG_FILE" --debug 2>&1 | tee "$LOG_FILE"
+
+                EXIT_CODE=${PIPESTATUS[0]}
+                if [ $EXIT_CODE -eq 0 ]; then
+                    echo "✓ 实验成功完成"
+                    echo "SUCCESS" >> "$LOG_FILE"
+                else
+                    echo "✗ 实验失败 (退出码: $EXIT_CODE)"
+                    echo "FAILED: exit code $EXIT_CODE" >> "$LOG_FILE"
+                fi
+
+                # 休息几秒，让 GPU 冷却
+                sleep 5
+            done
         done
     done
 done

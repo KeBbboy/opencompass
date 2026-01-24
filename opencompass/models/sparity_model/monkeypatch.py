@@ -17,97 +17,25 @@ from .patches import (
     apply_l2norm,
     apply_sparq,
     apply_full,
-    apply_full_int8,
-    apply_full_KIVI,
-    apply_pyramidkv_gqa,
     apply_sum_gqa,
-    apply_sum_gqa_chunk,
-    apply_sum_gqa_global,
     apply_windowkv,
     apply_windowkv_gqa,
     apply_chunkkv,
     apply_min_max_gqa,
-    apply_min_max_gqa_global,
-    apply_min_max_gqa_chunk,
-    apply_min_max_gqa_chunk_global,
-    apply_sum_gqa_chunk_global,
     apply_topk_gqa,
-    apply_topk_gqa_global,
     apply_center_topk_gqa,
-    apply_first_group_gqa,
     apply_RQA_sum,
     apply_RQA_mean,
     apply_RQA_mean_softmax,
     apply_RQA_mean_improved,
+    apply_RQA_l2weighted_ablation,
+    apply_RQA_learned_weights,
+    apply_RQA_per_head_topk,
 )
 from .patches.common import (
     load_model_with_fallback,
     prepare_inputs_for_generation_llama_new,
 )
-
-
-def _patch_qwen2_model_for_tuple_cache():
-    """Patch Qwen2Model to skip Cache conversion for KIVICache.
-
-    The issue is that Qwen2Model.forward (line 841-922) tries to convert
-    non-Cache objects to DynamicCache, but we need to keep KIVICache as-is.
-    """
-    from transformers.models.qwen2 import modeling_qwen2
-
-    # Import KIVICache class
-    try:
-        from .patches.full_kivi.forward import KIVICache
-    except ImportError:
-        # KIVI not being used, skip patch
-        return
-
-    # Store original forward
-    original_forward = modeling_qwen2.Qwen2Model.forward
-
-    def patched_forward(
-        self,
-        input_ids=None,
-        attention_mask=None,
-        position_ids=None,
-        past_key_values=None,
-        inputs_embeds=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
-        return_dict=None,
-        cache_position=None,
-        **kwargs,
-    ):
-        """Patched forward that uses KIVICache instead of DynamicCache."""
-
-        # If using KIVI method, replace DynamicCache creation with KIVICache
-        # Check if this is None (first call) or already a KIVICache
-        if past_key_values is None and use_cache:
-            # First call - create KIVICache instead of letting Qwen2 create DynamicCache
-            past_key_values = KIVICache()
-        elif isinstance(past_key_values, KIVICache):
-            # Already KIVICache - pass through
-            pass
-
-        # Call original forward - KIVICache will pass isinstance(Cache) check
-        result = original_forward(
-            self,
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-            cache_position=cache_position,
-            **kwargs,
-        )
-
-        return result
-
-    modeling_qwen2.Qwen2Model.forward = patched_forward
 
 
 def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False):  # noqa: ARG001
@@ -130,27 +58,19 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False): 
         'chunkkv': apply_chunkkv,
 
         'full': apply_full,
-        'full_INT8': apply_full_int8,
-        'full_KIVI': apply_full_KIVI,
 
-        'pyramidkv_gqa': apply_pyramidkv_gqa,
         'sum_gqa': apply_sum_gqa,
-        'sum_gqa_chunk': apply_sum_gqa_chunk,
-        'sum_gqa_global': apply_sum_gqa_global,
         'windowkv_gqa': apply_windowkv_gqa,
         'min_max_gqa': apply_min_max_gqa,
-        'min_max_gqa_global': apply_min_max_gqa_global,
-        'min_max_gqa_chunk': apply_min_max_gqa_chunk,
-        'min_max_gqa_chunk_global': apply_min_max_gqa_chunk_global,
-        'sum_gqa_chunk_global': apply_sum_gqa_chunk_global,
         'topk_gqa': apply_topk_gqa,
-        'topk_gqa_global': apply_topk_gqa_global,
         'center_topk_gqa': apply_center_topk_gqa,
-        'first_group_gqa': apply_first_group_gqa,
         'RQA_sum': apply_RQA_sum,
         'RQA_mean': apply_RQA_mean,
         'RQA_mean_softmax': apply_RQA_mean_softmax,
         'RQA_mean_improved': apply_RQA_mean_improved,
+        'RQA_l2weighted_ablation': apply_RQA_l2weighted_ablation,
+        'RQA_learned_weights': apply_RQA_learned_weights,
+        'RQA_per_head_topk': apply_RQA_per_head_topk,
     }
     
     if method in method_handlers:
@@ -163,15 +83,6 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False): 
     if method not in ['fullkv']:
         transformers.models.llama.modeling_llama.LlamaForCausalLM.prepare_inputs_for_generation = \
             prepare_inputs_for_generation_llama_new
-
-
-    if method in ['full_KIVI']:
-        # Also patch Qwen2 models
-        transformers.models.qwen2.modeling_qwen2.Qwen2ForCausalLM.prepare_inputs_for_generation = \
-            prepare_inputs_for_generation_llama_new
-
-        # Patch Qwen2Model to handle tuple caches from KIVI
-        _patch_qwen2_model_for_tuple_cache()
 
 
 def replace_model(self, path=None, model_kwargs=None,

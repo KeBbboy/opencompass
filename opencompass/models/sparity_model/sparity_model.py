@@ -65,7 +65,6 @@ class QwenAttentionConvert(BaseModel):
             self.method = other_kwargs.pop('method')
             self.model = other_kwargs.pop('path', None)
             self.cache_kwargs = other_kwargs.pop('cache_kwargs', {})
-            self.kivi_kwargs = other_kwargs.pop('kivi_kwargs', {})  # Extract KIVI parameters
             self.past_key_values = None
         
 
@@ -434,9 +433,13 @@ class QwenAttentionConvert(BaseModel):
                 # model.model.layers[i].self_attn.config.delta = args.delta
                 self.model.model.layers[i].self_attn.config.delta = (max_out_len - self.model.model.layers[i].self_attn.config.decoding_recent_size) // (self.model.model.layers[i].self_attn.config.decoding_window_size - self.model.model.layers[i].self_attn.config.decoding_recent_size)
                 # print(f"layer {i} delta {model.model.layers[i].self_attn.config.delta}")
- 
 
-        
+
+        # 为 RQA_mean, RQA_sum 等方法创建自定义 Cache
+        if self.method in ['RQA_mean', 'RQA_sum', 'sparsemm']:
+            from opencompass.models.sparity_model.patches.RQA_mean.init_utils import DynamicCacheSplitHeadFlatten
+            generation_kwargs['past_key_values'] = DynamicCacheSplitHeadFlatten()
+            print(f"[{self.method}] Using DynamicCacheSplitHeadFlatten for KV cache")
 
         outputs = self.model.generate(**tokens, **generation_kwargs)
         outputs = outputs[:, tokens['input_ids'].shape[1]:]
