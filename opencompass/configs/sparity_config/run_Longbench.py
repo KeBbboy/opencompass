@@ -150,7 +150,7 @@ models = [
                 window_size=64,
                 max_capacity_prompt=MAX_CAPACITY_PROMPT,
                 chunk_length = 8,
-                topk_heads=2,  # 在这里设置 topk_gqa 算法的 k 值
+                topk_heads=1,  # 在这里设置 topk_gqa 算法的 k 值
 
 
                 # RQA_per_head_topk 参数

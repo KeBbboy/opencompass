@@ -20,8 +20,8 @@ from .RQA_mean import apply_RQA_mean
 from .RQA_mean_softmax import apply_RQA_mean_softmax
 from .RQA_mean_improved import apply_RQA_mean_improved
 from .RQA_l2weighted_ablation import apply_RQA_l2weighted_ablation
-from .RQA_learned_weights import apply_RQA_learned_weights
 from .RQA_per_head_topk import apply_RQA_per_head_topk
+from .RQA_top1 import apply_RQA_top1
 from .quest import apply_quest
 from .raas import apply_raas
 
@@ -46,8 +46,8 @@ __all__ = [
     'apply_RQA_mean_softmax',
     'apply_RQA_mean_improved',
     'apply_RQA_l2weighted_ablation',
-    'apply_RQA_learned_weights',
     'apply_RQA_per_head_topk',
+    'apply_RQA_top1',
     'apply_quest',
     'apply_raas',
 ]

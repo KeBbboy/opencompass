@@ -29,8 +29,8 @@ from .patches import (
     apply_RQA_mean_softmax,
     apply_RQA_mean_improved,
     apply_RQA_l2weighted_ablation,
-    apply_RQA_learned_weights,
     apply_RQA_per_head_topk,
+    apply_RQA_top1,
 )
 from .patches.common import (
     load_model_with_fallback,
@@ -69,8 +69,8 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False): 
         'RQA_mean_softmax': apply_RQA_mean_softmax,
         'RQA_mean_improved': apply_RQA_mean_improved,
         'RQA_l2weighted_ablation': apply_RQA_l2weighted_ablation,
-        'RQA_learned_weights': apply_RQA_learned_weights,
         'RQA_per_head_topk': apply_RQA_per_head_topk,
+        'RQA_top1': apply_RQA_top1,
     }
     
     if method in method_handlers:
