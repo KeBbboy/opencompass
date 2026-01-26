@@ -1,4 +1,4 @@
-"""Initialization utilities for RQA_per_head_topk."""
+"""Initialization utilities for RQA_L2_hydrid."""
 
 import math
 import torch
@@ -27,7 +27,7 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
                                  head_dim)
 
 
-class SnapKVCluster_RQA_per_head_topk():
+class SnapKVCluster_RQA_L2_hydrid():
 
     def __init__(self,
                  window_size=64,
@@ -157,104 +157,64 @@ class SnapKVCluster_RQA_per_head_topk():
 
                     return key_states_gqa, value_states_gqa
 
-                # RQA_per_head_topk: 每个 query head 独立选择 topk 的 kv tokens
-                # query_states: [bsz, num_heads, seq_len, head_dim]
-                # 目标: 每个 query head 独立选择，最终聚合成 [bsz, num_key_value_heads, window_size, head_dim]
-
-                # 先选择最近的 window_size 个 token
                 query_states_window = query_states[..., -self.window_size:, :]  # [bsz, num_heads, window_size, head_dim]
-
-                # 将 query_states 重塑为 [bsz, num_key_value_heads, num_key_value_groups, window_size, head_dim]
                 query_states_grouped = query_states_window.view(bsz, num_key_value_heads, num_key_value_groups, self.window_size, head_dim)
 
                 # 计算每个 query 的 L2 范数
                 l2_norms = torch.norm(query_states_grouped, p=2, dim=-1)  # [bsz, num_key_value_heads, num_key_value_groups, window_size]
 
                 # 使用温度缩放的 softmax 计算权重
+                # weights: [bsz, num_key_value_heads, num_key_value_groups, window_size, 1]
                 weights = F.softmax(l2_norms / self.weight_temperature, dim=2).unsqueeze(-1)
 
                 # 加权求和
                 weighted_queries = query_states_grouped * weights
                 query_states_aggregated = weighted_queries.sum(dim=2)  # [bsz, num_key_value_heads, window_size, head_dim]
 
-                # 扩展 key_states_gqa 到所有 query heads 以便每个 query head 独立计算
-                # [bsz, num_key_value_heads, seq_len, head_dim] -> [bsz, num_heads, seq_len, head_dim]
-                key_states_expanded = repeat_kv(key_states_gqa, num_key_value_groups)
+                # 直接和 key_states_gqa 计算 attention weights
+                attn_weights = torch.matmul(
+                    query_states_aggregated,
+                    key_states_gqa.transpose(2, 3)) / math.sqrt(head_dim)
 
-                # 每个 query head 独立计算 attention weights
-                # query_states_window: [bsz, num_heads, window_size, head_dim]
-                # key_states_expanded: [bsz, num_heads, seq_len, head_dim]
-                attn_weights_per_head = torch.matmul(
-                    query_states_window,
-                    key_states_expanded.transpose(2, 3)) / math.sqrt(head_dim)
-                # attn_weights_per_head: [bsz, num_heads, window_size, seq_len]
-
-                # 创建 causal mask
                 mask = torch.full((self.window_size, self.window_size),
-                                torch.finfo(attn_weights_per_head.dtype).min,
-                                device=attn_weights_per_head.device)
-                mask_cond = torch.arange(mask.size(-1), device=attn_weights_per_head.device)
+                                torch.finfo(attn_weights.dtype).min,
+                                device=attn_weights.device)
+                mask_cond = torch.arange(mask.size(-1), device=attn_weights.device)
                 mask.masked_fill_(
                     mask_cond < (mask_cond + 1).view(mask.size(-1), 1), 0)
-                mask = mask.to(attn_weights_per_head.device)
+                mask = mask.to(attn_weights.device)
                 attention_mask = mask[None, None, :, :]
 
-                attn_weights_per_head[:, :, -self.window_size:,
+                attn_weights[:, :, -self.window_size:,
                             -self.window_size:] += attention_mask
 
-                attn_weights_per_head = nn.functional.softmax(attn_weights_per_head,
+                attn_weights = nn.functional.softmax(attn_weights,
                                                     dim=-1,
                                                     dtype=torch.float32).to(
                                                         query_states.dtype)
+                attn_weights_sum = attn_weights[:, :, -self.window_size:, :-self.
+                                                window_size].sum(dim=-2)
 
-                # 计算每个 head 的 attention weights sum
-                attn_weights_sum_per_head = attn_weights_per_head[:, :, -self.window_size:, :-self.window_size].sum(dim=-2)
-                # attn_weights_sum_per_head: [bsz, num_heads, seq_len - window_size]
-
-                # Pooling 平滑（对每个 head 独立进行）
+                # Pooling 平滑（已经在 GQA 格式上）
                 if self.pooling == 'avgpool':
-                    attn_cache_per_head = F.avg_pool1d(attn_weights_sum_per_head,
+                    attn_cache = F.avg_pool1d(attn_weights_sum,
                                             kernel_size=self.kernel_size,
                                             padding=self.kernel_size // 2,
                                             stride=1)
                 elif self.pooling == 'maxpool':
-                    attn_cache_per_head = F.max_pool1d(attn_weights_sum_per_head,
+                    attn_cache = F.max_pool1d(attn_weights_sum,
                                             kernel_size=self.kernel_size,
                                             padding=self.kernel_size // 2,
                                             stride=1)
                 else:
                     raise ValueError('Pooling method not supported')
 
-                # 每个 query head 独立选择 top-k indices
-                # attn_cache_per_head: [bsz, num_heads, seq_len - window_size]
-                indices_per_head = attn_cache_per_head.topk(self.max_capacity_prompt - self.window_size, dim=-1).indices
-                # indices_per_head: [bsz, num_heads, topk]
-
-                # 将 indices_per_head 重塑回 GQA 格式
-                # [bsz, num_heads, topk] -> [bsz, num_key_value_heads, num_key_value_groups, topk]
-                indices_grouped = indices_per_head.view(bsz, num_key_value_heads, num_key_value_groups, -1)
-
-                # 对每个 kv head，聚合来自多个 query heads 的 indices
-                # 方法：取所有 query heads 选择的 indices 的并集
-                # 为了简化，我们可以先将所有 indices 展平，然后去重
-                indices_flat = indices_grouped.reshape(bsz, num_key_value_heads, -1)  # [bsz, num_key_value_heads, num_key_value_groups * topk]
-
-                # 对每个 kv head，我们需要选择最多 topk 个唯一的 indices
-                # 使用 unique 操作可能会导致不同 kv head 有不同数量的 indices，这会导致形状不一致
-                # 因此，我们采用另一种方法：对所有候选 indices 的频率进行排序，选择出现频率最高的 topk 个
-
-                # 为了保持简单，我们直接取所有 query heads 选择的 indices 的平均位置
-                # 或者简单地选择第一个 query head 的 indices（这不太合理）
-                # 更好的方法：对每个位置的得分求和，然后选择 topk
-
-                # 重新计算：对每个 kv head，求所有对应 query heads 的 attn_cache 的平均
-                attn_cache_grouped = attn_cache_per_head.view(bsz, num_key_value_heads, num_key_value_groups, -1)
-                attn_cache_aggregated = attn_cache_grouped.mean(dim=2)  # [bsz, num_key_value_heads, seq_len - window_size]
-
-                # 现在对聚合后的 attention cache 选择 topk
-                indices = attn_cache_aggregated.topk(self.max_capacity_prompt - self.window_size, dim=-1).indices
+                # 此时 attn_cache 已经是 GQA 格式: [bsz, num_key_value_heads, seq_len]
+                # 不需要再做聚合，直接选择 top-k indices
+                indices = attn_cache.topk(self.max_capacity_prompt -
+                                        self.window_size,
+                                        dim=-1).indices
                 indices = indices.unsqueeze(-1).expand(-1, -1, -1, head_dim)
-                # indices: [bsz, num_key_value_heads, topk, head_dim]
 
                 if self.merge is not None:
                     key_states_gqa, value_states_gqa = merge_kv(key_states_gqa, value_states_gqa,
@@ -278,7 +238,8 @@ class SnapKVCluster_RQA_per_head_topk():
 
 
 
-def init_RQA_per_head_topk(self):
+
+def init_RQA_L2_hydrid(self):
     if not hasattr(self, 'kv_cluster'):
         if not hasattr(self.config, 'window_size'):
             self.config.window_size = 16
@@ -298,7 +259,7 @@ def init_RQA_per_head_topk(self):
             # 默认为空列表，表示所有层都应用
             self.config.target_layers = []
 
-        self.kv_cluster = SnapKVCluster_RQA_per_head_topk(
+        self.kv_cluster = SnapKVCluster_RQA_L2_hydrid(
             window_size=self.config.window_size,
             max_capacity_prompt=self.config.max_capacity_prompt,
             ratio=0.4,

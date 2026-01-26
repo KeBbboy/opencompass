@@ -1,4 +1,4 @@
-"""Initialization utilities for RQA_l2weighted_ablation."""
+"""Initialization utilities for RQA_l2."""
 
 import math
 import torch
@@ -27,7 +27,7 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
                                  head_dim)
 
 
-class SnapKVCluster_RQA_l2weighted_ablation():
+class SnapKVCluster_RQA_l2():
 
     def __init__(self,
                  window_size=64,
@@ -81,14 +81,8 @@ class SnapKVCluster_RQA_l2weighted_ablation():
             if q_len < self.max_capacity_prompt:
                 return key_states_gqa, value_states_gqa
             else:
-                # RQA_l2weighted_ablation: 使用 L2 范数加权聚合，然后每个 head 独立选择相同数量的 tokens
-                # query_states: [bsz, num_heads, seq_len, head_dim]
-                # 目标: [bsz, num_key_value_heads, window_size, head_dim]
-
-                # 先选择最近的 window_size 个 token
+                # RQA_l2: 使用 L2 范数加权聚合，然后每个 head 独立选择相同数量的 tokens
                 query_states_window = query_states[..., -self.window_size:, :]  # [bsz, num_heads, window_size, head_dim]
-
-                # 将 query_states_window 重塑为 [bsz, num_key_value_heads, num_key_value_groups, window_size, head_dim]
                 query_states_grouped = query_states_window.view(bsz, num_key_value_heads, num_key_value_groups, self.window_size, head_dim)
 
                 # 计算每个 query 的 L2 范数
@@ -169,7 +163,7 @@ class SnapKVCluster_RQA_l2weighted_ablation():
 
 
 
-def init_RQA_l2weighted_ablation(self):
+def init_RQA_l2(self):
     if not hasattr(self, 'kv_cluster'):
         if not hasattr(self.config, 'window_size'):
             self.config.window_size = 16
@@ -186,7 +180,7 @@ def init_RQA_l2weighted_ablation(self):
         if not hasattr(self.config, 'weight_temperature'):
             self.config.weight_temperature = 1.0  # 默认温度参数
 
-        self.kv_cluster = SnapKVCluster_RQA_l2weighted_ablation(
+        self.kv_cluster = SnapKVCluster_RQA_l2(
             window_size=self.config.window_size,
             max_capacity_prompt=self.config.max_capacity_prompt,
             ratio = 0.4,

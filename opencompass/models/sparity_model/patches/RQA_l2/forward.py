@@ -18,12 +18,12 @@ from transformers.utils import logging
 logger = logging.get_logger(__name__)
 
 # Import local init function
-from .init_utils import init_RQA_l2weighted_ablation
+from .init_utils import init_RQA_l2
 from ..utils.kv_utils import estimate_kv_memory
 
 
 
-def llama_sdpa_attn_forward_RQA_l2weighted_ablation(
+def llama_sdpa_attn_forward_RQA_l2(
     self,
     hidden_states: torch.Tensor,
     attention_mask: Optional[torch.Tensor] = None,
@@ -53,7 +53,7 @@ def llama_sdpa_attn_forward_RQA_l2weighted_ablation(
             position_embeddings=position_embeddings,
         )
 
-    init_RQA_l2weighted_ablation(self)
+    init_RQA_l2(self)
     bsz, q_len, _ = hidden_states.size()
 
     query_states = self.q_proj(hidden_states)

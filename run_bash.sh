@@ -17,8 +17,8 @@ METHODS=(
     # "RQA_sum"
     # "RQA_mean"
     # "RQA_mean_softmax"
-    # "RQA_l2weighted_ablation"
-    "RQA_per_head_topk"
+    # RQA_l2""
+    "RQA_RQA_L2_hydrid"
 
     # "topk_gqa"
     # "min_max_gqa"

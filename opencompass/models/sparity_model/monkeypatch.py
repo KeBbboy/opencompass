@@ -15,7 +15,6 @@ from .patches import (
     apply_h2o,
     apply_cam,
     apply_l2norm,
-    apply_sparq,
     apply_full,
     apply_sum_gqa,
     apply_windowkv,
@@ -28,8 +27,8 @@ from .patches import (
     apply_RQA_mean,
     apply_RQA_mean_softmax,
     apply_RQA_mean_improved,
-    apply_RQA_l2weighted_ablation,
-    apply_RQA_per_head_topk,
+    apply_RQA_l2,
+    apply_RQA_L2_hydrid,
     apply_RQA_top1,
 )
 from .patches.common import (
@@ -53,7 +52,6 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False): 
         'h2o': apply_h2o,
         'cam': apply_cam,
         'l2norm': apply_l2norm,
-        'sparq': apply_sparq,
         'windowkv': apply_windowkv,
         'chunkkv': apply_chunkkv,
 
@@ -68,8 +66,8 @@ def _apply_method_patches(self, path, model_kwargs, model_name, is_qwen=False): 
         'RQA_mean': apply_RQA_mean,
         'RQA_mean_softmax': apply_RQA_mean_softmax,
         'RQA_mean_improved': apply_RQA_mean_improved,
-        'RQA_l2weighted_ablation': apply_RQA_l2weighted_ablation,
-        'RQA_per_head_topk': apply_RQA_per_head_topk,
+        'RQA_l2': apply_RQA_l2,
+        'RQA_L2_hydrid': apply_RQA_L2_hydrid,
         'RQA_top1': apply_RQA_top1,
     }
     

@@ -101,9 +101,6 @@ ENABLE_TTFT = _temp_os.getenv('ENABLE_TTFT', 'False').lower() in ('true', '1', '
 TTFT_SAVE_DIR = _temp_os.getenv('TTFT_SAVE_DIR', './ttft_logs')
 TTFT_SAVE_TO_FILE = _temp_os.getenv('TTFT_SAVE_TO_FILE', 'True').lower() in ('true', '1', 'yes')
 
-# Ablation study parameters
-ABLATION_LAYER = int(_temp_os.getenv('ABLATION_LAYER', '-1'))
-ABLATION_RATIO = float(_temp_os.getenv('ABLATION_RATIO', '0.5'))
 
 # Attention Entropy Logging parameters
 ENABLE_ENTROPY_LOGGING = _temp_os.getenv('ENABLE_ENTROPY_LOGGING', 'False').lower() in ('true', '1', 'yes')
@@ -123,9 +120,11 @@ del _temp_os
 
 # 将需要评测的数据集拼接成 datasets 字段
 datasets = [
-    *needlebench_datasets
-    # *LongBench_narrativeqa_datasets,
-    # *LongBench_qasper_datasets,
+    # *needlebench_datasets
+    *LongBench_narrativeqa_datasets,
+    *LongBench_qasper_datasets,
+    *LongBench_multifieldqa_en_datasets,
+    *LongBench_multifieldqa_zh_datasets
     # *LongBench_multifieldqa_en_datasets,
     # *LongBench_multifieldqa_zh_datasets
     # *ruler_32k_ds
@@ -153,8 +152,9 @@ models = [
                 topk_heads=1,  # 在这里设置 topk_gqa 算法的 k 值
 
 
-                # RQA_per_head_topk 参数
-                target_layers=[0, 1] + list(range(5, 28)),  # 除了2、3、4层外都使用L2加权，只有2、3、4层使用per-head SnapKV
+                # RQA_L2_hydrid 参数
+                # target_layers=[0, 1] + list(range(5, 28)),  # 除了2、3、4层外都使用L2加权，只有2、3、4层使用per-head SnapKV
+                target_layers=list(range(5, 28)),
                 weight_temperature=0.3,  # L2范数加权的温度参数
 
 

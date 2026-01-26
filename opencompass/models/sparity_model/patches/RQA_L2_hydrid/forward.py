@@ -18,12 +18,12 @@ from transformers.utils import logging
 logger = logging.get_logger(__name__)
 
 # Import local init function
-from .init_utils import init_RQA_per_head_topk
+from .init_utils import init_RQA_L2_hydrid
 from ..utils.kv_utils import estimate_kv_memory
 
 
 
-def llama_sdpa_attn_forward_RQA_per_head_topk(
+def llama_sdpa_attn_forward_RQA_L2_hydrid(
     self,
     hidden_states: torch.Tensor,
     attention_mask: Optional[torch.Tensor] = None,
@@ -53,7 +53,7 @@ def llama_sdpa_attn_forward_RQA_per_head_topk(
             position_embeddings=position_embeddings,
         )
 
-    init_RQA_per_head_topk(self)
+    init_RQA_L2_hydrid(self)
     bsz, q_len, _ = hidden_states.size()
 
     query_states = self.q_proj(hidden_states)
@@ -101,20 +101,7 @@ def llama_sdpa_attn_forward_RQA_per_head_topk(
                                   self.layer_idx, cache_kwargs)
 
 
-            if self.layer_idx == 27:
-                # 获取 method 和 max_capacity_prompt 参数
-                method = getattr(self.config, 'method', 'unknown')
-                max_capacity_prompt = None
-                if hasattr(self.config, 'max_capacity_prompt'):
-                    max_capacity_prompt = self.config.max_capacity_prompt
-                elif hasattr(self.config, 'cache_kwargs') and 'max_capacity_prompt' in self.config.cache_kwargs:
-                    max_capacity_prompt = self.config.cache_kwargs['max_capacity_prompt']
-
-                # 如果 method 是 "full"，则不在文件名中添加 max_capacity_prompt
-                if isinstance(method, str) and method.lower() == "full":
-                    max_capacity_prompt = None
-
-                estimate_kv_memory(past_key_value, method=method, max_capacity_prompt=max_capacity_prompt)
+            print(f"Layer {self.layer_idx} key_states_compress shape: {key_states_compress.shape}")
         else:
 
 

@@ -81,12 +81,6 @@ def prepare_inputs_for_generation_llama_new(
     """Prepare inputs for generation with custom KV cache handling."""
     from transformers.cache_utils import DynamicCache, Cache
 
-        elif not isinstance(past_key_values, tuple):
-            # Other cache types
-            if hasattr(past_key_values, 'key_cache') and len(past_key_values.key_cache) == 0:
-                for layer in self.model.layers:
-                    if hasattr(layer.self_attn, 'kv_seq_len'):
-                        layer.self_attn.kv_seq_len = 0
 
     # If we have cache: let's slice `input_ids` through `cache_position`, to keep only the unprocessed tokens
     # Exception 1: when passing input_embeds, input_ids may be missing entries

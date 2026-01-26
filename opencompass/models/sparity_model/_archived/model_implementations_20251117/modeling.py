@@ -27,7 +27,7 @@ from ..cake.utils import calculate_entropy
 from .flex_prefill_attention import flex_prefill_attention
 from .model_kv_utils import (DynamicCacheSplitHeadFlatten, init_adakv,
                               init_CAM, init_H2O, init_headkv, init_l2norm,
-                              init_pyramidkv, init_snapkv,init_snapkv_gqa, init_sparq,
+                              init_pyramidkv, init_snapkv,init_snapkv_gqa,
                               init_StreamingLLM,init_ALLKV,init_pyramidkv_gqa)
 from .quantization import quantize_kv_int8_per_token, dequantize_kv_int8
 
